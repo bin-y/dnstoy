@@ -1,0 +1,6 @@
+#ifndef DNSTOY_VERSION_H_
+#define DNSTOY_VERSION_H_
+
+#define DNSTOY_VERSION 000001
+
+#endif // DNSTOY_VERSION_H_
