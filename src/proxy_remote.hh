@@ -18,7 +18,7 @@ class Remote {
     static constexpr uint32_t USER = 1 << 0;
     static constexpr uint32_t UDP = 1 << 2;
     static constexpr uint32_t TCP = 1 << 3;
-    static constexpr uint32_t TLS = (1 << 4) | TypeFlag::TCP;
+    static constexpr uint32_t TLS = 1 << 4;
     // TODO: HTTP
   };
 
@@ -27,7 +27,7 @@ class Remote {
     TCP_USER = TypeFlag::TCP | TypeFlag::USER,
     UDP_SERVER = TypeFlag::UDP,
     TCP_SERVER = TypeFlag::TCP,
-    TLS_SERVER = TypeFlag::TLS,
+    TLS_SERVER = TypeFlag::TLS | TypeFlag::TCP,
   };
 
   virtual void receive(const boost::asio::mutable_buffers_1& buffers,

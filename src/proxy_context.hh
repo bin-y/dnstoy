@@ -25,12 +25,17 @@ class Context : public std::enable_shared_from_this<Context> {
   std::unique_ptr<Remote> user_;
   MessageReader message_reader_;
   dns::MessageDecoder message_decoder_;
+  std::queue<std::vector<uint8_t>>
+      write_message_queue_;  // data in vector is dns::TcpRawMessage format
 
   void ReplyFailure(int16_t id, dns::RCODE rcode);
   void HandleUserMessage(MessageReader::Reason reason, const uint8_t* data,
                          uint16_t data_size);
+  void HandleResolvedQuery(QueryContextPointer&& query);
   static void Resolve(QueryContextPointer& query_pointer,
                       QueryResultHandler&& handler);
+  void WriteMessage(std::vector<uint8_t>&& tcp_raw_message);
+  void DoWrite();
   Context(Remote* user);
 };
 

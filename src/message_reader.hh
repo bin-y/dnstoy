@@ -68,9 +68,11 @@ class MessageReader {
     if (available_size < read_size) {
       if (data_offset_ + available_size > read_size) {
         memmove(buffer_.data(), buffer_.data() + data_offset_, data_size_);
+        available_size += data_offset_;
         data_offset_ = 0;
       } else {
         buffer_.resize(buffer_.size() + (read_size - available_size));
+        available_size = read_size;
       }
     }
     auto read_buffer = buffer_.data() + data_offset_ + data_size_;
@@ -116,8 +118,9 @@ class MessageReader {
           DoRead(stream, std::move(handler));
         };
     LOG_TRACE("start async_read " << read_size);
-    boost::asio::async_read(stream, boost::asio::buffer(read_buffer, read_size),
-                            boost_handler);
+    boost::asio::async_read(
+        stream, boost::asio::buffer(read_buffer, available_size),
+        boost::asio::transfer_at_least(read_size), boost_handler);
   }
 };
 

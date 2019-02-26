@@ -67,6 +67,7 @@ void TlsResolver::CloseConnection() {
 
 void TlsResolver::ResetConnection() {
   CloseConnection();
+  message_reader_.reset();
   socket_ = std::make_unique<stream_type>(Engine::get().GetExecutor(),
                                           GetSSLContextForHost(hostname_));
   LOG_INFO("connect to " << hostname_);
@@ -196,7 +197,7 @@ void TlsResolver::HandleServerMessage(MessageReader::Reason reason,
   auto& record = query_handle.mapped();
   auto context_pointer = record.first.lock();
   if (!context_pointer) {
-    LOG_ERROR("?|" << id << " answer timed out");
+    LOG_INFO("?|" << id << " answer timed out");
     return;
   }
   auto& context = context_pointer->object;

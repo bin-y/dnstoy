@@ -56,7 +56,9 @@ void Context::ReplyFailure(int16_t id, dns::RCODE rcode) {
   dns::Message response;
   response.header.id = id;
   response.header.response_code = static_cast<int16_t>(rcode);
-  auto encode_result = dns::MessageEncoder::Encode(response, buffer, 0);
+  auto encode_result = dns::MessageEncoder::Encode(
+      response, buffer, offsetof(dns::RawTcpMessage, message));
+
   if (encode_result != ResultType::good) {
     return;
   }
@@ -67,11 +69,12 @@ void Context::ReplyFailure(int16_t id, dns::RCODE rcode) {
       // dns::MessageEncoder::Truncate(buffer, )
       return;
     }
+  } else {
+    auto message = reinterpret_cast<dns::RawTcpMessage*>(buffer.data());
+    message->message_length = endian::native_to_big(
+        buffer.size() - offsetof(dns::RawTcpMessage, message));
   }
-
-  user_->send(boost::asio::buffer(buffer),
-              [this, buffer_ptr = std::move(buffer_ptr),
-               _ = shared_from_this()](error_code, size_t) {});
+  WriteMessage(std::move(buffer));
 }
 
 void Context::HandleUserMessage(MessageReader::Reason reason,
@@ -79,6 +82,7 @@ void Context::HandleUserMessage(MessageReader::Reason reason,
   using ResultType = dns::MessageDecoder::ResultType;
   auto query = std::make_shared<WithTimer<QueryContext>>();
   if (user_->type() == Remote::Type::UDP_USER) {
+    LOG_TRACE("udp query");
     auto decode_result = dns::MessageDecoder::DecodeCompleteMesssage(
         query->object.query, data, data_size);
     if (decode_result != ResultType::good) {
@@ -103,26 +107,51 @@ void Context::HandleUserMessage(MessageReader::Reason reason,
   query->object.raw_message.insert(query->object.raw_message.end(), data,
                                    data + data_size);
   query->ExpireSharedPtrAfter(query, query_timeout_);
-  Resolve(query, [this, _ = shared_from_this()](QueryContextPointer&& query) {
-    auto& context = query->object;
-    if (context.rcode != dns::RCODE::SUCCESS) {
-      ReplyFailure(context.query.header.id, context.rcode);
-      return;
-    }
-    if (context.query.questions.size()) {
-      LOG_DEBUG("ID:" << context.query.header.id << " "
-                      << context.query.questions[0].name << " resolved");
-    }
-    auto send_data = query->object.raw_message.data();
-    auto send_size = query->object.raw_message.size();
-    if (user_->type() == Remote::Type::UDP_USER) {
-      send_data += offsetof(dns::RawTcpMessage, message);
-      send_size -= offsetof(dns::RawTcpMessage, message);
-    }
-    user_->send(boost::asio::buffer(send_data, send_size),
-                [query = std::move(query)](error_code error, size_t) {});
-  });
+  Resolve(query, std::bind(&Context::HandleResolvedQuery, shared_from_this(),
+                           std::placeholders::_1));
 }
+
+void Context::HandleResolvedQuery(QueryContextPointer&& query) {
+  auto& context = query->object;
+  if (context.rcode != dns::RCODE::SUCCESS) {
+    ReplyFailure(context.query.header.id, context.rcode);
+    return;
+  }
+  if (context.query.questions.size()) {
+    LOG_DEBUG("ID:" << context.query.header.id << " "
+                    << context.query.questions[0].name << " resolved");
+  }
+  WriteMessage(std::move(query->object.raw_message));
+}
+
+void Context::WriteMessage(std::vector<uint8_t>&& tcp_raw_message) {
+  write_message_queue_.emplace(std::move(tcp_raw_message));
+  if (write_message_queue_.size() == 1) {
+    DoWrite();
+  }
+}
+
+void Context::DoWrite() {
+  if (write_message_queue_.empty()) {
+    return;
+  }
+  auto buffer = std::make_shared<vector<uint8_t>>(
+      std::move(write_message_queue_.front()));
+  write_message_queue_.pop();
+
+  auto write_data = buffer->data();
+  auto write_size = buffer->size();
+
+  if (user_->type() == Remote::Type::UDP_USER) {
+    write_data += offsetof(dns::RawTcpMessage, message);
+    write_size -= offsetof(dns::RawTcpMessage, message);
+  }
+
+  user_->send(boost::asio::buffer(write_data, write_size),
+              [this, _ = std::move(buffer), __ = shared_from_this()](
+                  error_code error, size_t) { DoWrite(); });
+}
+
 void Context::Resolve(QueryContextPointer& query_pointer,
                       QueryResultHandler&& handler) {
   static thread_local TlsResolver* tls_resolver_;
