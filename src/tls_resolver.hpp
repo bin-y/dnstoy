@@ -23,7 +23,7 @@ class TlsResolver {
   std::unique_ptr<stream_type> socket_;
   QueryManager query_manager_;
   std::string config_;
-  std::string_view hostname_;
+  std::string hostname_;
   std::variant<nullptr_t, boost::asio::ip::tcp::resolver::results_type,
                boost::asio::ip::tcp::endpoint>
       endpoints_;
