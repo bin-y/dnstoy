@@ -15,8 +15,9 @@ class MessageEncoder {
   enum class ResultType { good, bad };
   static ResultType Encode(const Message& message, std::vector<uint8_t>& buffer,
                            size_t offset);
-  static ResultType Truncate(std::vector<uint8_t>& buffer, size_t buffer_size,
-                             size_t size_limit);
+
+  static ResultType Truncate(uint8_t* buffer, size_t buffer_size,
+                             size_t size_limit, size_t& truncated_size);
   static ResultType RewriteIDToTcpMessage(uint8_t* buffer, size_t buffer_size,
                                           int16_t id);
 };

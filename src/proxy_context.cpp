@@ -45,20 +45,30 @@ void Context::ReplyFailure(QueryContextPointer&& query) {
       response, buffer, offsetof(dns::RawTcpMessage, message));
 
   if (encode_result != ResultType::good) {
+    LOG_ERROR("Encode failure");
     return;
   }
 
+  auto tcp_message = reinterpret_cast<dns::RawTcpMessage*>(buffer.data());
   if (std::holds_alternative<boost::asio::ip::udp::socket>(socket_)) {
     static auto udp_payload_size_limit_ =
         Configuration::get("udp-paylad-size-limit").as<uint16_t>();
+    auto udp_payload_size =
+        buffer.size() - offsetof(dns::RawTcpMessage, message);
+
     if (buffer.size() > udp_payload_size_limit_) {
-      // TODO: implement dns::MessageEncoder::Truncate
-      // dns::MessageEncoder::Truncate(buffer, )
-      return;
+      size_t turncated_size;
+      encode_result = dns::MessageEncoder::Truncate(
+          tcp_message->message, udp_payload_size, udp_payload_size_limit_,
+          turncated_size);
+      if (encode_result != ResultType::good) {
+        LOG_ERROR("Encode failure");
+        return;
+      }
+      buffer.resize(turncated_size + offsetof(dns::RawTcpMessage, message));
     }
   } else {
-    auto message = reinterpret_cast<dns::RawTcpMessage*>(buffer.data());
-    message->message_length = endian::native_to_big(
+    tcp_message->message_length = endian::native_to_big(
         buffer.size() - offsetof(dns::RawTcpMessage, message));
   }
   QueueReply(std::move(query));
