@@ -72,7 +72,6 @@ struct RawHeader {
 };
 
 struct RawLabel {
-  // FIXME: use constant flag def instead of bit fields
   struct Flag {
     static constexpr uint8_t MASK =
         0b11000000;  // not a flag, flag value = (flag & MASK)

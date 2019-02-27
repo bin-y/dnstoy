@@ -35,8 +35,8 @@ class QueryManager {
       int16_t& id);  // Get a query record which query context is not expired
 
  private:
-  static int16_t CreateID();
   std::queue<QueryRecord> query_queue_;
+  int16_t counter_;
 };
 
 }  // namespace dnstoy

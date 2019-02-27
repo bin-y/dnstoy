@@ -1,5 +1,4 @@
 #include "query.hpp"
-#include <atomic>
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
 #include <chrono>
@@ -33,19 +32,13 @@ bool QueryManager::GetRecord(QueryRecord& record, int16_t& id) {
     auto context = current.first.lock();
     if (context) {
       record = std::move(current);
-      id = CreateID();
+      id = counter_++;
       query_queue_.pop();
       return true;
     }
     query_queue_.pop();
   }
   return false;
-}
-
-int16_t QueryManager::CreateID() {
-  // FIXME: duplicated id if 65536 queries come together
-  static atomic<int16_t> counter_(0);
-  return counter_++;
 }
 
 }  // namespace dnstoy

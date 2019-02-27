@@ -39,7 +39,11 @@ class MessageReader {
       status_ = Status::RUNNING;
       if constexpr (std::is_same<StreamType,
                                  boost::asio::ip::udp::socket>::value) {
-        assert(buffer_.size());
+        if (buffer_.size() == 0) {
+          assert(false);
+          LOG_ERROR("Reading udp to empty buffer");
+          return;
+        }
         DoReadUdp(stream, std::move(handler));
       } else {
         DoReadStream(stream, std::move(handler));
@@ -92,47 +96,47 @@ class MessageReader {
     }
     auto read_buffer = buffer_.data() + data_offset_ + data_size_;
 
-    std::function<void(boost::system::error_code, size_t)> boost_handler =
-        [this, &stream, handler = std::move(handler)](
-            boost::system::error_code error, size_t new_data_size) mutable {
-          if (error) {
-            if (error == boost::asio::error::eof ||
-                error == boost::system::errc::operation_canceled) {
-              LOG_TRACE("connection closed");
-              // TODO: add a handler reason for this
-              return;
-            }
-            LOG_ERROR(<< error.message());
-            handler(Reason::IO_ERROR, nullptr, 0);
-            status_ = Status::STOP;
-            return;
-          }
-          LOG_TRACE("Income data " << new_data_size);
-          data_size_ += new_data_size;
-          do {
-            auto data = buffer_.data() + data_offset_;
-            if (tcp_message_size_ == 0) {
-              if (data_size_ < sizeof(dns::RawTcpMessage)) {
-                break;
-              }
-              auto tcp_message =
-                  reinterpret_cast<const dns::RawTcpMessage*>(data);
-              tcp_message_size_ =
-                  sizeof(dns::RawTcpMessage) +
-                  boost::endian::big_to_native(tcp_message->message_length);
-            }
-            if (data_size_ < tcp_message_size_) {
-              LOG_DEBUG("Message " << new_data_size << "/"
-                                   << tcp_message_size_);
-              break;
-            }
-            handler(Reason::NEW_MESSAGE, data, tcp_message_size_);
-            data_size_ -= tcp_message_size_;
-            tcp_message_size_ = 0;
-          } while (data_size_ >= tcp_message_size_);
-          DoReadStream(stream, std::move(handler));
-        };
     LOG_TRACE("start async_read " << read_size);
+
+    auto boost_handler = [this, &stream, handler = std::move(handler)](
+                             boost::system::error_code error,
+                             size_t new_data_size) {
+      if (error) {
+        if (error == boost::asio::error::eof ||
+            error == boost::system::errc::operation_canceled) {
+          LOG_TRACE("connection closed");
+          // TODO: add a handler reason for this
+          return;
+        }
+        LOG_ERROR(<< error.message());
+        handler(Reason::IO_ERROR, nullptr, 0);
+        status_ = Status::STOP;
+        return;
+      }
+      LOG_TRACE("Income data " << new_data_size);
+      data_size_ += new_data_size;
+      do {
+        auto data = buffer_.data() + data_offset_;
+        if (tcp_message_size_ == 0) {
+          if (data_size_ < sizeof(dns::RawTcpMessage)) {
+            break;
+          }
+          auto tcp_message = reinterpret_cast<const dns::RawTcpMessage*>(data);
+          tcp_message_size_ =
+              sizeof(dns::RawTcpMessage) +
+              boost::endian::big_to_native(tcp_message->message_length);
+        }
+        if (data_size_ < tcp_message_size_) {
+          LOG_DEBUG("Message " << new_data_size << "/" << tcp_message_size_);
+          break;
+        }
+        handler(Reason::NEW_MESSAGE, data, tcp_message_size_);
+        data_size_ -= tcp_message_size_;
+        tcp_message_size_ = 0;
+      } while (data_size_ >= tcp_message_size_);
+      DoReadStream(stream, std::move(handler));
+    };
+
     boost::asio::async_read(
         stream, boost::asio::buffer(read_buffer, available_size),
         boost::asio::transfer_at_least(read_size), boost_handler);

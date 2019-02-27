@@ -305,8 +305,9 @@ inline MessageDecoder::ResultType MessageDecoder::DecodeName(
         }
       } break;
       default:
-        assert(false);
         // rfc1035 4.1.4: 0x40/0x80 reserved for future
+        assert(false);
+        return ResultType::bad;
     }
   }
 }
