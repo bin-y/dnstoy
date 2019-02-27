@@ -191,8 +191,7 @@ void Context::Resolve(QueryContextPointer& query_pointer,
     }
     tls_resolver_ = std::make_unique<TlsResolver>(&resolvers[4]);
     if (!tls_resolver_->Init()) {
-      LOG_ERROR(
-          "Check configure:" << Configuration::get("tls-servers").as<string>());
+      LOG_ERROR("Check configure:" << resolvers);
       tls_resolver_ = nullptr;
       return;
     }

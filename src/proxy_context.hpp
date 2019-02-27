@@ -49,7 +49,6 @@ class Context : public std::enable_shared_from_this<Context> {
                boost::asio::ip::udp::socket>
       socket_;
   MessageReader message_reader_;
-  dns::MessageDecoder message_decoder_;
   std::queue<QueryContextPointer> reply_queue_;
 
   Context() {}
