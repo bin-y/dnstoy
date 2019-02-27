@@ -1,0 +1,194 @@
+#include <boost/endian/conversion.hpp>
+#include <chrono>
+#include <iostream>
+#include <vector>
+#include "proxy.hpp"
+#include "tls_resolver.hpp"
+
+namespace endian = boost::endian;
+using boost::asio::async_write;
+using boost::asio::ip::tcp;
+using boost::asio::ip::udp;
+using boost::system::error_code;
+using std::cout;
+using std::endl;
+using std::string;
+using std::vector;
+using std::chrono::milliseconds;
+
+namespace dnstoy {
+namespace proxy {
+
+void Context::Stop() {
+  if (std::holds_alternative<boost::asio::ip::udp::socket>(socket_)) {
+    error_code error;
+    std::get<udp::socket>(socket_).close();
+  } else {
+    error_code error;
+    std::get<tcp::socket>(socket_).close();
+  }
+}
+
+void Context::ReplyFailure(QueryContextPointer&& query) {
+  auto id = query->object.query.header.id;
+  auto rcode = query->object.rcode;
+  LOG_DEBUG("ID:" << id << " failed, RCODE:" << static_cast<int16_t>(rcode));
+  using ResultType = dns::MessageEncoder::ResultType;
+  auto& buffer = query->object.raw_message;
+  buffer.resize(0);
+  size_t size_limit = 0;
+
+  dns::Message response;
+  response.header.id = id;
+  response.header.response_code = static_cast<int16_t>(rcode);
+  auto encode_result = dns::MessageEncoder::Encode(
+      response, buffer, offsetof(dns::RawTcpMessage, message));
+
+  if (encode_result != ResultType::good) {
+    return;
+  }
+
+  if (std::holds_alternative<boost::asio::ip::udp::socket>(socket_)) {
+    static auto udp_payload_size_limit_ =
+        Configuration::get("udp-paylad-size-limit").as<uint16_t>();
+    if (buffer.size() > udp_payload_size_limit_) {
+      // TODO: implement dns::MessageEncoder::Truncate
+      // dns::MessageEncoder::Truncate(buffer, )
+      return;
+    }
+  } else {
+    auto message = reinterpret_cast<dns::RawTcpMessage*>(buffer.data());
+    message->message_length = endian::native_to_big(
+        buffer.size() - offsetof(dns::RawTcpMessage, message));
+  }
+  QueueReply(std::move(query));
+}
+
+void Context::HandleUserMessage(
+    MessageReader::Reason reason, const uint8_t* data, uint16_t data_size,
+    const boost::asio::ip::udp::endpoint* udp_endpoint) {
+  if (reason != MessageReader::Reason::NEW_MESSAGE) {
+    LOG_TRACE("ignore reason:" << static_cast<int>(reason));
+    return;
+  }
+  if (!data || !data_size) {
+    LOG_ERROR("empty message!");
+    return;
+  }
+  using ResultType = dns::MessageDecoder::ResultType;
+  static auto query_timeout_ = std::chrono::milliseconds(
+      Configuration::get("query-timeout").as<uint32_t>());
+  auto query = std::make_shared<WithTimer<QueryContext>>();
+  uint16_t message_length = data_size;
+  uint16_t message_offset = 0;
+  if (udp_endpoint) {
+    LOG_TRACE("udp query");
+    query->object.endpoint = *udp_endpoint;
+  } else {
+    LOG_TRACE("tcp query");
+    message_offset = offsetof(dns::RawTcpMessage, message);
+    message_length -= offsetof(dns::RawTcpMessage, message);
+  }
+  auto decode_result = dns::MessageDecoder::DecodeCompleteMesssage(
+      query->object.query, data + message_offset, message_length);
+  if (decode_result != ResultType::good) {
+    LOG_ERROR("decode failed!");
+    return;
+  }
+
+  // store message as dns::RawTcpMessage
+  query->object.raw_message.resize(offsetof(dns::RawTcpMessage, message) +
+                                   message_length);
+  auto tcp_message =
+      reinterpret_cast<dns::RawTcpMessage*>(query->object.raw_message.data());
+  tcp_message->message_length = endian::native_to_big(message_length);
+  memcpy(tcp_message->message, data + message_offset, message_length);
+
+  query->ExpireSharedPtrAfter(query, query_timeout_);
+  Resolve(query, std::bind(&Context::HandleResolvedQuery, shared_from_this(),
+                           std::placeholders::_1));
+}
+
+void Context::HandleResolvedQuery(QueryContextPointer&& query) {
+  LOG_TRACE();
+  auto& context = query->object;
+  if (context.rcode != dns::RCODE::SUCCESS) {
+    ReplyFailure(std::move(query));
+    return;
+  }
+  if (context.query.questions.size()) {
+    LOG_DEBUG("ID:" << context.query.header.id << " "
+                    << context.query.questions[0].name << " resolved");
+  }
+  QueueReply(std::move(query));
+}
+
+void Context::QueueReply(QueryContextPointer&& query) {
+  reply_queue_.emplace(std::move(query));
+  if (reply_queue_.size() == 1) {
+    DoWrite();
+  }
+}
+
+void Context::DoWrite() {
+  if (reply_queue_.empty()) {
+    return;
+  }
+  auto query = std::move(reply_queue_.front());
+  reply_queue_.pop();
+
+  auto& endpoint = query->object.endpoint;
+  auto write_data = query->object.raw_message.data();
+  auto write_size = query->object.raw_message.size();
+
+  auto handler = [this, _ = std::move(query), __ = shared_from_this()](
+                     error_code error, size_t) {
+    if (error) {
+      LOG_ERROR(<< error.message());
+    }
+    DoWrite();
+  };
+
+  if (std::holds_alternative<udp::socket>(socket_)) {
+    auto& socket = std::get<udp::socket>(socket_);
+    if (!socket.is_open()) {
+      return;
+    }
+    write_data += offsetof(dns::RawTcpMessage, message);
+    write_size -= offsetof(dns::RawTcpMessage, message);
+    socket.async_send_to(boost::asio::buffer(write_data, write_size),
+                         std::get<udp::endpoint>(endpoint), std::move(handler));
+  } else {
+    auto& socket = std::get<tcp::socket>(socket_);
+    if (!socket.is_open()) {
+      return;
+    }
+    async_write(socket, boost::asio::buffer(write_data, write_size),
+                std::move(handler));
+  }
+}
+
+void Context::Resolve(QueryContextPointer& query_pointer,
+                      QueryResultHandler&& handler) {
+  // TODO: select resolver by rule
+  static thread_local std::unique_ptr<TlsResolver> tls_resolver_;
+  if (!tls_resolver_) {
+    // TODO: handle multiple server in configuration
+    auto resolvers = Configuration::get("remote-servers").as<string>();
+    if (strncmp(resolvers.c_str(), "tls#", 4) != 0) {
+      assert(false);
+      LOG_ERROR("Currently only support tls remote");
+    }
+    tls_resolver_ = std::make_unique<TlsResolver>(&resolvers[4]);
+    if (!tls_resolver_->Init()) {
+      LOG_ERROR(
+          "Check configure:" << Configuration::get("tls-servers").as<string>());
+      tls_resolver_ = nullptr;
+      return;
+    }
+  }
+  tls_resolver_->Resolve(query_pointer, std::move(handler));
+}
+
+}  // namespace proxy
+}  // namespace dnstoy

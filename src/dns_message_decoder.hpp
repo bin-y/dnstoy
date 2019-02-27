@@ -4,7 +4,7 @@
 #include <boost/endian/conversion.hpp>
 #include <string>
 #include <vector>
-#include "dns_definition.hh"
+#include "dns_definition.hpp"
 
 namespace dnstoy {
 namespace dns {

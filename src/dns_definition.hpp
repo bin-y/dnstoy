@@ -2,7 +2,7 @@
 #define DNSTOY_DNS_DEFINITION_H_
 #include <string>
 #include <vector>
-#include "dns_definition_raw.hh"
+#include "dns_definition_raw.hpp"
 
 namespace dnstoy {
 namespace dns {

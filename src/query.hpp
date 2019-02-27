@@ -3,13 +3,17 @@
 #include <memory>
 #include <queue>
 #include <unordered_map>
+#include <variant>
 #include <vector>
-#include "dns.hh"
-#include "with_timer.hh"
+#include "dns.hpp"
+#include "with_timer.hpp"
 
 namespace dnstoy {
 
 struct QueryContext {
+  using TcpEndpoint = boost::asio::ip::tcp::endpoint;
+  using UdpEndpoint = boost::asio::ip::udp::endpoint;
+  std::variant<TcpEndpoint, UdpEndpoint> endpoint;
   dns::Message query;
   dns::Message answer;
   std::vector<uint8_t>

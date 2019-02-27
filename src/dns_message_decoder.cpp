@@ -1,7 +1,7 @@
 #include <boost/endian/conversion.hpp>
 #include <string>
 #include <vector>
-#include "dns.hh"
+#include "dns.hpp"
 
 namespace endian = boost::endian;
 using std::string;

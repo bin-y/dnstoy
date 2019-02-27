@@ -5,9 +5,9 @@
 #include <boost/endian/conversion.hpp>
 #include <string>
 #include <vector>
-#include "dns.hh"
-#include "logging.hh"
-#include "query.hh"
+#include "dns.hpp"
+#include "logging.hpp"
+#include "query.hpp"
 
 namespace dnstoy {
 
@@ -18,8 +18,13 @@ class MessageReader {
     IO_ERROR,
     MANUAL_STOPPED,
   };
-  using HandlerTypeExample =
+
+  using StreamHandlerTypeExample =
       std::function<void(Reason, const uint8_t*, uint16_t)>;
+  using UdpHandlerTypeExample = std::function<void(
+      Reason, const uint8_t*, uint16_t, boost::asio::ip::udp::endpoint*)>;
+
+  void resize_buffer(size_t size) { buffer_.resize(size); }
 
   void reset() {
     status_ = Status::STOP;
@@ -29,25 +34,35 @@ class MessageReader {
   }
 
   template <typename StreamType, typename HandlerType>
-  void StartRead(StreamType& stream, HandlerType&& handler) {
+  void Start(StreamType& stream, HandlerType&& handler) {
     if (status_ != Status::RUNNING) {
       status_ = Status::RUNNING;
-      DoRead(stream, std::move(handler));
+      if constexpr (std::is_same<StreamType,
+                                 boost::asio::ip::udp::socket>::value) {
+        assert(buffer_.size());
+        DoReadUdp(stream, std::move(handler));
+      } else {
+        DoReadStream(stream, std::move(handler));
+      }
     }
   }
 
   void Stop() { status_ = Status::STOP; }
 
  private:
+  using TcpSocket = boost::asio::ip::tcp::socket;
+  using UdpSocket = boost::asio::ip::udp::socket;
+
   enum class Status { STOP, RUNNING } status_ = Status::STOP;
   size_t data_offset_ = 0;
   size_t data_size_ = 0;
   uint16_t tcp_message_size_ = 0;
+  boost::asio::ip::udp::endpoint udp_endpoint_;
 
   std::vector<uint8_t> buffer_;
 
   template <typename StreamType, typename HandlerType>
-  void DoRead(StreamType& stream, HandlerType&& handler) {
+  void DoReadStream(StreamType& stream, HandlerType&& handler) {
     if (status_ == Status::STOP) {
       handler(Reason::MANUAL_STOPPED, nullptr, 0);
       status_ = Status::STOP;
@@ -115,12 +130,48 @@ class MessageReader {
             data_size_ -= tcp_message_size_;
             tcp_message_size_ = 0;
           } while (data_size_ >= tcp_message_size_);
-          DoRead(stream, std::move(handler));
+          DoReadStream(stream, std::move(handler));
         };
     LOG_TRACE("start async_read " << read_size);
     boost::asio::async_read(
         stream, boost::asio::buffer(read_buffer, available_size),
         boost::asio::transfer_at_least(read_size), boost_handler);
+  }
+
+  template <typename HandlerType>
+  void DoReadUdp(boost::asio::ip::udp::socket& socket, HandlerType&& handler) {
+    if (status_ == Status::STOP) {
+      handler(Reason::MANUAL_STOPPED, nullptr, 0, nullptr);
+      status_ = Status::STOP;
+      LOG_TRACE("manual stopped");
+      return;
+    }
+    if (!socket.is_open()) {
+      handler(Reason::MANUAL_STOPPED, nullptr, 0, nullptr);
+      status_ = Status::STOP;
+      LOG_TRACE("connection closed");
+      return;
+    }
+    socket.async_receive_from(
+        boost::asio::buffer(buffer_), udp_endpoint_,
+        [this, &socket, handler = std::move(handler)](
+            boost::system::error_code error, size_t data_size) {
+          if (error) {
+            if (error == boost::asio::error::eof ||
+                error == boost::system::errc::operation_canceled) {
+              LOG_TRACE("connection closed");
+              // TODO: add a handler reason for this
+              return;
+            }
+            LOG_ERROR(<< error.message());
+            handler(Reason::IO_ERROR, nullptr, 0, nullptr);
+            status_ = Status::STOP;
+            return;
+          }
+          handler(Reason::NEW_MESSAGE, buffer_.data(), data_size,
+                  &udp_endpoint_);
+          DoReadUdp(socket, std::move(handler));
+        });
   }
 };
 

@@ -1,17 +1,21 @@
-#include "tls_resolver.hh"
+#include "tls_resolver.hpp"
 #include <boost/endian/conversion.hpp>
+#include <boost/lexical_cast.hpp>
 #include <chrono>
 #include <string>
-#include "configuration.hh"
-#include "engine.hh"
-#include "logging.hh"
-#include "query.hh"
-#include "with_timer.hh"
+#include "configuration.hpp"
+#include "engine.hpp"
+#include "logging.hpp"
+#include "query.hpp"
+#include "with_timer.hpp"
 
 namespace ssl = boost::asio::ssl;
 namespace endian = boost::endian;
+using boost::bad_lexical_cast;
+using boost::lexical_cast;
 using boost::asio::async_read;
 using boost::asio::async_write;
+using boost::asio::ip::make_address;
 using boost::asio::ip::tcp;
 using boost::system::error_code;
 using std::cout;
@@ -22,14 +26,60 @@ using std::chrono::milliseconds;
 
 namespace dnstoy {
 
-TlsResolver::TlsResolver(const string& hostname)
-    : hostname_(hostname), timeout_timer_(Engine::get().GetExecutor()) {
-  tcp::resolver resolver(Engine::get().GetExecutor());
-  endpoints_ = resolver.resolve(hostname, "853");
+TlsResolver::TlsResolver(const string& config)
+    : config_(config), timeout_timer_(Engine::get().GetExecutor()) {}
+
+bool TlsResolver::Init() {
+  try {
+    string address;
+    string port_string;
+    uint16_t port_number;
+    auto begin = 0;
+    auto end = config_.find('#', begin);
+    if (end == string::npos) {
+      return false;
+    }
+    address = config_.substr(begin, end - begin);
+    begin = end + 1;
+
+    end = config_.find('#', begin);
+    if (end == string::npos) {
+      return false;
+    }
+    port_string = config_.substr(begin, end - begin);
+    begin = end + 1;
+
+    end = config_.find('#', begin);
+    if (end == string::npos) {
+      hostname_ = config_.substr(begin);
+    } else {
+      hostname_ = config_.substr(begin, end - begin);
+    }
+
+    if (port_string.empty()) {
+      port_string = "853";
+    }
+
+    if (address.empty()) {
+      tcp::resolver resolver(Engine::get().GetExecutor());
+      endpoints_ = resolver.resolve(hostname_, port_string);
+    } else {
+      port_number = lexical_cast<decltype(port_number)>(port_string);
+      endpoints_ = tcp::endpoint(make_address(address), port_number);
+    }
+    return true;
+  } catch (...) {
+    return false;
+  }
 }
 
 void TlsResolver::Resolve(QueryContextWeakPointer&& query,
                           QueryResultHandler&& handler) {
+  if (std::holds_alternative<nullptr_t>(endpoints_)) {
+    assert(false);
+    LOG_ERROR("Not initialized!");
+    return;
+  }
   query_manager_.QueueQuery(std::move(query), std::move(handler));
   if (consuming_query_record_) {
     return;
@@ -69,11 +119,22 @@ void TlsResolver::ResetConnection() {
   CloseConnection();
   message_reader_.reset();
   socket_ = std::make_unique<stream_type>(Engine::get().GetExecutor(),
-                                          GetSSLContextForHost(hostname_));
-  LOG_INFO("connect to " << hostname_);
+                                          GetSSLContextForConfig(config_));
+  LOG_INFO("connect to " << config_);
   sent_queries_.clear();
 
   socket_->set_verify_mode(ssl::verify_peer);
+
+  {
+    // Enable automatic hostname checks
+    auto param = SSL_get0_param(socket_->native_handle());
+
+    X509_VERIFY_PARAM_set_hostflags(param,
+                                    X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
+    X509_VERIFY_PARAM_set1_host(param, hostname_.data(), hostname_.length());
+  }
+  // TODO: support DANE
+  // https://en.wikipedia.org/wiki/DNS-based_Authentication_of_Named_Entities
 
   socket_->set_verify_callback(
       [this](bool preverified, boost::asio::ssl::verify_context& ctx) {
@@ -88,17 +149,25 @@ void TlsResolver::ResetConnection() {
 
   UpdateSocketTimeout(std::chrono::seconds(10));
 
-  boost::asio::async_connect(
-      socket_->lowest_layer(), endpoints_,
-      [this](const boost::system::error_code& error,
-             const tcp::endpoint& /*endpoint*/) {
-        if (!error) {
-          Handshake();
-        } else {
-          LOG_ERROR("Connect failed: " << error.message());
-          ResetConnection();
-        }
-      });
+  auto handler = [this](const boost::system::error_code& error,
+                        const tcp::endpoint& /*endpoint*/) {
+    if (!error) {
+      Handshake();
+    } else {
+      LOG_ERROR("Connect failed: " << error.message());
+      ResetConnection();
+    }
+  };
+
+  if (auto endpoint =
+          std::get_if<boost::asio::ip::tcp::endpoint>(&endpoints_)) {
+    socket_->lowest_layer().async_connect(
+        *endpoint, std::bind(handler, std::placeholders::_1, *endpoint));
+  } else {
+    boost::asio::async_connect(
+        socket_->lowest_layer(),
+        std::get<tcp::resolver::results_type>(endpoints_), std::move(handler));
+  }
 }
 
 void TlsResolver::Handshake() {
@@ -118,7 +187,7 @@ void TlsResolver::Handshake() {
         }
         LOG_TRACE("Handshake success, do write");
         DoWrite();
-        message_reader_.StartRead(
+        message_reader_.Start(
             *socket_, std::bind(&TlsResolver::HandleServerMessage, this,
                                 std::placeholders::_1, std::placeholders::_2,
                                 std::placeholders::_3));
@@ -179,6 +248,10 @@ void TlsResolver::HandleServerMessage(MessageReader::Reason reason,
     LOG_TRACE("ignore reason:" << static_cast<int>(reason));
     return;
   }
+  if (!data || !data_size) {
+    LOG_ERROR("empty message!");
+    return;
+  }
   auto header = reinterpret_cast<const dns::RawHeader*>(
       data + offsetof(dns::RawTcpMessage, message));
   using ResultType = dns::MessageDecoder::ResultType;
@@ -210,17 +283,21 @@ void TlsResolver::HandleServerMessage(MessageReader::Reason reason,
   record.second(std::move(context_pointer));
 }
 
-boost::asio::ssl::context& TlsResolver::GetSSLContextForHost(
-    const std::string& hostname) {
+boost::asio::ssl::context& TlsResolver::GetSSLContextForConfig(
+    const std::string& config) {
   static thread_local std::unordered_map<string, ssl::context>
-      ssl_context_for_hostname_;
-  auto emplace_result = ssl_context_for_hostname_.emplace(
-      std::make_pair(hostname, ssl::context::tls_client));
+      ssl_context_for_config_;
+  auto emplace_result = ssl_context_for_config_.emplace(
+      std::make_pair(config, ssl::context::tls_client));
   auto& result = emplace_result.first->second;
   if (emplace_result.second) {
     // new context
     // TODO: support more tls option from configuration
+    // Use system cert
     result.set_default_verify_paths();
+    // minor tls version set to 1.2
+    result.set_options(ssl::context::default_workarounds |
+                       ssl::context::no_tlsv1 | ssl::context::no_tlsv1_1);
   }
   return result;
 }

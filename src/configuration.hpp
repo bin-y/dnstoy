@@ -50,9 +50,6 @@ class Configuration {
     add_configuration_option("listen-port",
                              bpo::value<uint16_t>()->default_value(53),
                              "server listen port");
-    add_configuration_option("tls-servers",
-                             bpo::value<string>()->default_value("1dot1dot1dot1.cloudflare-dns.com"),
-                             "remote tls server");
     add_configuration_option("udp-paylad-size-limit",
                              bpo::value<uint16_t>()->default_value(65507),
                              "udp payload size limit should between "
@@ -60,10 +57,10 @@ class Configuration {
     add_configuration_option("query-timeout",
                              bpo::value<uint32_t>()->default_value(3000),
                              "timeout for every query in milliseconds");
-    add_configuration_option(
-        "remote-resolvers",
-        bpo::value<string>()->default_value("1dot1dot1dot1.cloudflare-dns.com"),
-        "timeout for every query in milliseconds");
+    add_configuration_option("remote-servers",
+                             bpo::value<string>()->default_value(
+                                 "tls#1.0.0.1#853#cloudflare-dns.com"),
+                             "foreign dns server");
     bpo::store(bpo::parse_config_file(ifs, configurations), variables_);
     bpo::notify(variables_);
     return 0;

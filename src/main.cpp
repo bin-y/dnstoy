@@ -1,8 +1,8 @@
 #include <unistd.h>
 #include <iostream>
-#include "configuration.hh"
-#include "logging.hh"
-#include "server.hh"
+#include "configuration.hpp"
+#include "logging.hpp"
+#include "server.hpp"
 #include "version.h"
 
 using boost::asio::ip::udp;
@@ -20,6 +20,8 @@ int main(int argc, const char **argv) {
   }
 
   Server server;
+  server.StartTcp();
+  server.StartUdp();
   server.Run();
   LOG_INFO("Exit.");
 }

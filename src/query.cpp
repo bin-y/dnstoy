@@ -1,12 +1,12 @@
-#include "query.hh"
+#include "query.hpp"
 #include <atomic>
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
 #include <chrono>
 #include <queue>
 #include <vector>
-#include "configuration.hh"
-#include "engine.hh"
+#include "configuration.hpp"
+#include "engine.hpp"
 
 using boost::asio::signal_set;
 namespace ssl = boost::asio::ssl;

@@ -1,4 +1,4 @@
-#include "logging.hh"
+#include "logging.hpp"
 #include <boost/log/utility/setup/common_attributes.hpp>
 #include <boost/log/utility/setup/console.hpp>
 

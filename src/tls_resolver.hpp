@@ -6,22 +6,27 @@
 #include <chrono>
 #include <string>
 #include <unordered_map>
-#include "message_reader.hh"
-#include "query.hh"
+#include <variant>
+#include "message_reader.hpp"
+#include "query.hpp"
 
 namespace dnstoy {
 
 class TlsResolver {
  public:
   TlsResolver(const std::string& hostname);
+  bool Init();
   void Resolve(QueryContextWeakPointer&& query, QueryResultHandler&& handler);
 
  private:
   using stream_type = boost::asio::ssl::stream<boost::asio::ip::tcp::socket>;
   std::unique_ptr<stream_type> socket_;
   QueryManager query_manager_;
-  std::string hostname_;
-  boost::asio::ip::tcp::resolver::results_type endpoints_;
+  std::string config_;
+  std::string_view hostname_;
+  std::variant<nullptr_t, boost::asio::ip::tcp::resolver::results_type,
+               boost::asio::ip::tcp::endpoint>
+      endpoints_;
   std::unordered_map<int16_t, QueryManager::QueryRecord> sent_queries_;
   MessageReader message_reader_;
   QueryManager::QueryRecord* reading_record_ = nullptr;
@@ -37,8 +42,8 @@ class TlsResolver {
   void DoWrite();
   void HandleServerMessage(MessageReader::Reason reason, const uint8_t* data,
                            uint16_t data_size);
-  static boost::asio::ssl::context& GetSSLContextForHost(
-      const std::string& hostname);
+  static boost::asio::ssl::context& GetSSLContextForConfig(
+      const std::string& config);
 };
 
 }  // namespace dnstoy

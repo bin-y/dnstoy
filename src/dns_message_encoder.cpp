@@ -5,7 +5,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include "dns.hh"
+#include "dns.hpp"
 
 namespace endian = boost::endian;
 using std::string;

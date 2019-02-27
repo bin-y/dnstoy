@@ -24,9 +24,9 @@ include_directories("${PROJECT_BINARY_DIR}")
  
 # add the executable
 add_executable(dnstoy 
-  src/main.cc src/configuration.cc src/engine.cc src/server.cc src/logging.cc
-  src/proxy_context.cc src/proxy_remote.cc
-  src/query.cc src/tls_resolver.cc
-  src/dns_message_decoder.cc src/dns_message_encoder.cc
+  src/main.cpp src/configuration.cpp src/engine.cpp src/server.cpp src/logging.cpp
+  src/proxy_context.cpp
+  src/query.cpp src/tls_resolver.cpp
+  src/dns_message_decoder.cpp src/dns_message_encoder.cpp
 )
 target_link_libraries( dnstoy ${Boost_LIBRARIES} pthread ssl crypto )

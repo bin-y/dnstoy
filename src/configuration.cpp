@@ -1,4 +1,4 @@
-#include "configuration.hh"
+#include "configuration.hpp"
 
 namespace dnstoy {
 boost::program_options::variables_map Configuration::variables_;

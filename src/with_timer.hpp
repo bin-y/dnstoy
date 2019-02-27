@@ -3,7 +3,7 @@
 
 #include <boost/asio/steady_timer.hpp>
 #include <memory>
-#include "engine.hh"
+#include "engine.hpp"
 
 namespace dnstoy {
 
