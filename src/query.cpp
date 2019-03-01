@@ -29,14 +29,14 @@ void QueryManager::QueueQuery(QueryContextWeakPointer&& context,
 bool QueryManager::GetRecord(QueryRecord& record, int16_t& id) {
   while (query_queue_.size()) {
     auto& current = query_queue_.front();
-    auto context = current.first.lock();
-    if (context) {
-      record = std::move(current);
-      id = counter_++;
+    if (current.first.expired()) {
       query_queue_.pop();
-      return true;
+      continue;
     }
+    record = std::move(current);
+    id = counter_++;
     query_queue_.pop();
+    return true;
   }
   return false;
 }
