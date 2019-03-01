@@ -111,7 +111,7 @@ MessageEncoder::ResultType MessageEncoder::Truncate(uint8_t* buffer,
                                                     size_t buffer_size,
                                                     size_t size_limit,
                                                     size_t& truncated_size) {
-  if (size_limit <= sizeof(RawHeader)) {
+  if (size_limit < sizeof(RawHeader)) {
     return ResultType::bad;
   }
   MessageView message;
@@ -190,10 +190,10 @@ MessageEncoder::ResultType MessageEncoder::RewriteIDToTcpMessage(
 }
 
 inline bool EncodeName(MessageEncoderContext& context, const string& name) {
-  string::size_type end_offset;
-  auto begin_offset = 0;
+  string::size_type end_offset = 0;
+  string::size_type begin_offset = 0;
 
-  do {
+  while (begin_offset < name.size()) {
     auto i = context.encoded_labels.find(&name[begin_offset]);
     if (i != context.encoded_labels.end()) {
       context.buffer.resize(context.offset + 2);
@@ -206,7 +206,7 @@ inline bool EncodeName(MessageEncoderContext& context, const string& name) {
       return true;
     }
 
-    end_offset = name.find('.');
+    end_offset = name.find('.', begin_offset);
     if (end_offset == string::npos) {
       end_offset = name.size();
     }
@@ -224,7 +224,8 @@ inline bool EncodeName(MessageEncoderContext& context, const string& name) {
       context.encoded_labels[&name[begin_offset]] = context.offset;
     }
     context.offset += 1 + label_length;
-  } while (end_offset != name.size());
+    begin_offset = end_offset + 1;
+  }
   context.buffer.push_back(0);
   context.offset += 1;
   return true;
