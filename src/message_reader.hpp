@@ -106,6 +106,7 @@ class MessageReader {
             error == boost::system::errc::operation_canceled) {
           LOG_TRACE("connection closed");
           // TODO: add a handler reason for this
+          status_ = Status::STOP;
           return;
         }
         LOG_ERROR(<< error.message());
@@ -127,7 +128,7 @@ class MessageReader {
               boost::endian::big_to_native(tcp_message->message_length);
         }
         if (data_size_ < tcp_message_size_) {
-          LOG_DEBUG("Message " << new_data_size << "/" << tcp_message_size_);
+          LOG_DEBUG("Message " << data_size_ << "/" << tcp_message_size_);
           break;
         }
         handler(Reason::NEW_MESSAGE, data, tcp_message_size_);
@@ -165,6 +166,7 @@ class MessageReader {
                 error == boost::system::errc::operation_canceled) {
               LOG_TRACE("connection closed");
               // TODO: add a handler reason for this
+              status_ = Status::STOP;
               return;
             }
             LOG_ERROR(<< error.message());
