@@ -49,25 +49,8 @@ void Context::ReplyFailure(QueryContextPointer&& query) {
     return;
   }
 
-  auto tcp_message = reinterpret_cast<dns::RawTcpMessage*>(buffer.data());
-  if (std::holds_alternative<boost::asio::ip::udp::socket>(socket_)) {
-    static auto udp_payload_size_limit_ =
-        Configuration::get("udp-paylad-size-limit").as<uint16_t>();
-    auto udp_payload_size =
-        buffer.size() - offsetof(dns::RawTcpMessage, message);
-
-    if (buffer.size() > udp_payload_size_limit_) {
-      size_t turncated_size;
-      encode_result = dns::MessageEncoder::Truncate(
-          tcp_message->message, udp_payload_size, udp_payload_size_limit_,
-          turncated_size);
-      if (encode_result != ResultType::good) {
-        LOG_ERROR("Encode failure");
-        return;
-      }
-      buffer.resize(turncated_size + offsetof(dns::RawTcpMessage, message));
-    }
-  } else {
+  if (std::holds_alternative<boost::asio::ip::tcp::socket>(socket_)) {
+    auto tcp_message = reinterpret_cast<dns::RawTcpMessage*>(buffer.data());
     tcp_message->message_length = endian::native_to_big(
         buffer.size() - offsetof(dns::RawTcpMessage, message));
   }
@@ -134,6 +117,28 @@ void Context::HandleResolvedQuery(QueryContextPointer&& query) {
 }
 
 void Context::QueueReply(QueryContextPointer&& query) {
+  auto& buffer = query->object.raw_message;
+  auto tcp_message = reinterpret_cast<dns::RawTcpMessage*>(buffer.data());
+  if (std::holds_alternative<boost::asio::ip::udp::socket>(socket_)) {
+    static auto udp_payload_size_limit_ =
+        Configuration::get("udp-paylad-size-limit").as<uint16_t>();
+    auto udp_payload_size =
+        buffer.size() - offsetof(dns::RawTcpMessage, message);
+
+    if (udp_payload_size > udp_payload_size_limit_) {
+      using ResultType = dns::MessageEncoder::ResultType;
+      size_t turncated_size;
+      auto encode_result = dns::MessageEncoder::Truncate(
+          tcp_message->message, udp_payload_size, udp_payload_size_limit_,
+          turncated_size);
+      if (encode_result != ResultType::good) {
+        LOG_ERROR("Encode failure");
+        return;
+      }
+      buffer.resize(turncated_size + offsetof(dns::RawTcpMessage, message));
+    }
+  }
+
   reply_queue_.emplace(std::move(query));
   if (reply_queue_.size() == 1) {
     DoWrite();
