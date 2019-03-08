@@ -6,8 +6,7 @@ set(Boost_USE_STATIC_LIBS ON)
 find_package( Boost 1.69 COMPONENTS program_options system log REQUIRED )
 include_directories (SYSTEM ${Boost_INCLUDE_DIR})
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c++17")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17")
+set(CMAKE_CXX_STANDARD 17)
 
 # Get version from version.h
 file(READ src/version.h version_h)
