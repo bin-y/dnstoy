@@ -29,12 +29,12 @@ void Context::Stop() {
   }
 }
 
-void Context::ReplyFailure(QueryContextPointer&& query) {
-  auto id = query->object.query.header.id;
-  auto rcode = query->object.rcode;
+void Context::ReplyFailure(QueryContext::pointer&& query) {
+  auto id = query->query.header.id;
+  auto rcode = query->rcode;
   LOG_DEBUG("ID:" << id << " failed, RCODE:" << static_cast<int16_t>(rcode));
   using ResultType = dns::MessageEncoder::ResultType;
-  auto& buffer = query->object.raw_message;
+  auto& buffer = query->raw_message;
   buffer.resize(0);
   size_t size_limit = 0;
 
@@ -71,40 +71,41 @@ void Context::HandleUserMessage(
   using ResultType = dns::MessageDecoder::ResultType;
   static auto query_timeout_ = std::chrono::milliseconds(
       Configuration::get("query-timeout").as<uint32_t>());
-  auto query = std::make_shared<WithTimer<QueryContext>>();
+  auto query = QueryContext::create();
   uint16_t message_length = data_size;
   uint16_t message_offset = 0;
   if (udp_endpoint) {
     LOG_TRACE("udp query");
-    query->object.endpoint = *udp_endpoint;
+    query->endpoint = *udp_endpoint;
   } else {
     LOG_TRACE("tcp query");
     message_offset = offsetof(dns::RawTcpMessage, message);
     message_length -= offsetof(dns::RawTcpMessage, message);
   }
   auto decode_result = dns::MessageDecoder::DecodeCompleteMesssage(
-      query->object.query, data + message_offset, message_length);
+      query->query, data + message_offset, message_length);
   if (decode_result != ResultType::good) {
     LOG_ERROR("decode failed!");
     return;
   }
 
   // store message as dns::RawTcpMessage
-  query->object.raw_message.resize(offsetof(dns::RawTcpMessage, message) +
-                                   message_length);
+  query->raw_message.resize(offsetof(dns::RawTcpMessage, message) +
+                            message_length);
   auto tcp_message =
-      reinterpret_cast<dns::RawTcpMessage*>(query->object.raw_message.data());
+      reinterpret_cast<dns::RawTcpMessage*>(query->raw_message.data());
   tcp_message->message_length = endian::native_to_big(message_length);
   memcpy(tcp_message->message, data + message_offset, message_length);
 
-  query->ExpireSharedPtrAfter(query, query_timeout_);
-  Resolve(query, std::bind(&Context::HandleResolvedQuery, shared_from_this(),
-                           std::placeholders::_1));
+  query->LockPointerFor(query_timeout_);
+  query->handler = std::bind(&Context::HandleResolvedQuery, shared_from_this(),
+                             std::placeholders::_1);
+  Resolve(query);
 }
 
-void Context::HandleResolvedQuery(QueryContextPointer&& query) {
+void Context::HandleResolvedQuery(QueryContext::pointer&& query) {
   LOG_TRACE();
-  auto& context = query->object;
+  auto& context = *query;
   if (context.rcode != dns::RCODE::SUCCESS) {
     ReplyFailure(std::move(query));
     return;
@@ -116,12 +117,12 @@ void Context::HandleResolvedQuery(QueryContextPointer&& query) {
   QueueReply(std::move(query));
 }
 
-void Context::QueueReply(QueryContextPointer&& query) {
+void Context::QueueReply(QueryContext::pointer&& query) {
   if (std::holds_alternative<boost::asio::ip::udp::socket>(socket_)) {
     static auto udp_payload_size_limit_ =
         Configuration::get("udp-paylad-size-limit").as<uint16_t>();
 
-    auto& buffer = query->object.raw_message;
+    auto& buffer = query->raw_message;
     auto tcp_message = reinterpret_cast<dns::RawTcpMessage*>(buffer.data());
     auto udp_payload_size =
         buffer.size() - offsetof(dns::RawTcpMessage, message);
@@ -153,9 +154,9 @@ void Context::DoWrite() {
   auto query = std::move(reply_queue_.front());
   reply_queue_.pop();
 
-  auto& endpoint = query->object.endpoint;
-  auto write_data = query->object.raw_message.data();
-  auto write_size = query->object.raw_message.size();
+  auto& endpoint = query->endpoint;
+  auto write_data = query->raw_message.data();
+  auto write_size = query->raw_message.size();
 
   auto handler = [this, _ = std::move(query), __ = shared_from_this()](
                      error_code error, size_t) {
@@ -184,8 +185,7 @@ void Context::DoWrite() {
   }
 }
 
-void Context::Resolve(QueryContextPointer& query_pointer,
-                      QueryResultHandler&& handler) {
+void Context::Resolve(QueryContext::pointer& query) {
   // TODO: select resolver by rule
   static thread_local std::unique_ptr<TlsResolver> tls_resolver_;
   if (!tls_resolver_) {
@@ -202,7 +202,7 @@ void Context::Resolve(QueryContextPointer& query_pointer,
       return;
     }
   }
-  tls_resolver_->Resolve(query_pointer, std::move(handler));
+  tls_resolver_->Resolve(query);
 }
 
 }  // namespace proxy

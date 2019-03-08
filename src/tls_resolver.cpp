@@ -7,7 +7,6 @@
 #include "engine.hpp"
 #include "logging.hpp"
 #include "query.hpp"
-#include "with_timer.hpp"
 
 namespace ssl = boost::asio::ssl;
 namespace endian = boost::endian;
@@ -73,14 +72,13 @@ bool TlsResolver::Init() {
   }
 }
 
-void TlsResolver::Resolve(QueryContextWeakPointer&& query,
-                          QueryResultHandler&& handler) {
+void TlsResolver::Resolve(QueryContext::weak_pointer&& query) {
   if (std::holds_alternative<nullptr_t>(endpoints_)) {
     assert(false);
     LOG_ERROR("Not initialized!");
     return;
   }
-  query_manager_.QueueQuery(std::move(query), std::move(handler));
+  query_manager_.QueueQuery(std::move(query));
   if (consuming_query_record_) {
     return;
   }
@@ -202,17 +200,16 @@ void TlsResolver::DoWrite() {
   }
   UpdateSocketTimeout(idle_timeout_);
 
-  QueryManager::QueryRecord record;
+  QueryContext::pointer query;
   int16_t id;
-  consuming_query_record_ = query_manager_.GetRecord(record, id);
+  consuming_query_record_ = query_manager_.GetQuery(query, id);
   if (!consuming_query_record_) {
     LOG_TRACE("Queue clear.");
     return;
   }
   using ResultType = dns::MessageEncoder::ResultType;
-  auto context_pointer = record.first.lock();
-  // GetRecord ensure context is not expired
-  auto& context = context_pointer->object;
+  assert(query);
+  auto& context = *query.get();
 
   LOG_TRACE("Query" << context.query.header.id << "|" << id << "start write");
   auto encode_result = dns::MessageEncoder::RewriteIDToTcpMessage(
@@ -222,24 +219,30 @@ void TlsResolver::DoWrite() {
                       << "encode failed");
     return;
   }
-  sent_queries_[id] = std::move(record);
-  async_write(
-      *socket_, boost::asio::buffer(context.raw_message),
-      [this, context_pointer, id](const boost::system::error_code& error,
-                                  std::size_t bytes_transfered) mutable {
-        if (error) {
-          LOG_ERROR("Write failed " << error.message());
-          auto expired = context_pointer.use_count() == 1;
-          if (!expired) {
-            context_pointer->object.rcode = dns::RCODE::SERVER_FAILURE;
-            sent_queries_[id].second(std::move(context_pointer));
-            return;
-          }
-          ResetConnection();
-          return;
-        }
-        DoWrite();
-      });
+  while (sent_queries_.find(id) != sent_queries_.end()) {
+    Engine::get().GetExecutor().run_one();
+  }
+  sent_queries_[id] = query;
+  async_write(*socket_, boost::asio::buffer(context.raw_message),
+              [this, id](const boost::system::error_code& error,
+                         std::size_t bytes_transfered) mutable {
+                if (error) {
+                  LOG_ERROR("Write failed " << error.message());
+                  auto handle = sent_queries_.extract(id);
+                  if (handle.empty()) {
+                    LOG_ERROR("emmm...");
+                  }
+                  auto query = handle.mapped().lock();
+                  if (query) {
+                    query->rcode = dns::RCODE::SERVER_FAILURE;
+                    query->handler(std::move(query));
+                    return;
+                  }
+                  ResetConnection();
+                  return;
+                }
+                DoWrite();
+              });
 }
 
 void TlsResolver::HandleServerMessage(MessageReader::Reason reason,
@@ -267,20 +270,20 @@ void TlsResolver::HandleServerMessage(MessageReader::Reason reason,
     LOG_ERROR("?|" << id << " answer find no record");
     return;
   }
-  auto& record = query_handle.mapped();
-  auto context_pointer = record.first.lock();
-  if (!context_pointer) {
+  auto& query_weak_pointer = query_handle.mapped();
+  auto query = query_weak_pointer.lock();
+  if (!query) {
     LOG_INFO("?|" << id << " answer timed out");
     return;
   }
-  auto& context = context_pointer->object;
+  auto& context = *query;
   context.rcode = dns::RCODE::SUCCESS;
   context.raw_message.assign(data, data + data_size);
   dns::MessageEncoder::RewriteIDToTcpMessage(
       context.raw_message.data(), data_size, context.query.header.id);
 
   LOG_TRACE(<< context.query.header.id << "|" << id << " answered");
-  record.second(std::move(context_pointer));
+  context.handler(std::move(query));
 }
 
 boost::asio::ssl::context& TlsResolver::GetSSLContextForConfig(

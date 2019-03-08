@@ -49,17 +49,16 @@ class Context : public std::enable_shared_from_this<Context> {
                boost::asio::ip::udp::socket>
       socket_;
   MessageReader message_reader_;
-  std::queue<QueryContextPointer> reply_queue_;
+  std::queue<QueryContext::pointer> reply_queue_;
 
   Context() {}
-  void ReplyFailure(QueryContextPointer&& query);
+  void ReplyFailure(QueryContext::pointer&& query);
   void HandleUserMessage(MessageReader::Reason reason, const uint8_t* data,
                          uint16_t data_size,
                          const boost::asio::ip::udp::endpoint* udp_endpoint);
-  void HandleResolvedQuery(QueryContextPointer&& query);
-  static void Resolve(QueryContextPointer& query_pointer,
-                      QueryResultHandler&& handler);
-  void QueueReply(QueryContextPointer&& query);
+  void HandleResolvedQuery(QueryContext::pointer&& query);
+  static void Resolve(QueryContext::pointer& query);
+  void QueueReply(QueryContext::pointer&& query);
   void DoWrite();
 };
 

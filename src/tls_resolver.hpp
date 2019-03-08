@@ -12,11 +12,12 @@
 
 namespace dnstoy {
 
+// thread-unsafe, designed for thread_local use
 class TlsResolver {
  public:
   TlsResolver(const std::string& hostname);
   bool Init();
-  void Resolve(QueryContextWeakPointer&& query, QueryResultHandler&& handler);
+  void Resolve(QueryContext::weak_pointer&& query);
 
  private:
   using stream_type = boost::asio::ssl::stream<boost::asio::ip::tcp::socket>;
@@ -27,9 +28,8 @@ class TlsResolver {
   std::variant<nullptr_t, boost::asio::ip::tcp::resolver::results_type,
                boost::asio::ip::tcp::endpoint>
       endpoints_;
-  std::unordered_map<int16_t, QueryManager::QueryRecord> sent_queries_;
+  std::unordered_map<int16_t, QueryContext::weak_pointer> sent_queries_;
   MessageReader message_reader_;
-  QueryManager::QueryRecord* reading_record_ = nullptr;
   bool consuming_query_record_ = false;
   std::chrono::seconds idle_timeout_ = std::chrono::seconds(10);
   boost::asio::steady_timer timeout_timer_;

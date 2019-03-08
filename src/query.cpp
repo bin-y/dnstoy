@@ -19,24 +19,18 @@ using std::endl;
 
 namespace dnstoy {
 
-void QueryManager::QueueQuery(QueryContextWeakPointer&& context,
-                              QueryResultHandler&& handler) {
-  query_queue_.emplace(
-      std::make_pair<QueryContextWeakPointer, QueryResultHandler>(
-          std::move(context), std::move(handler)));
+void QueryManager::QueueQuery(QueryContext::weak_pointer&& context) {
+  query_queue_.emplace(std::move(context));
 }
 
-bool QueryManager::GetRecord(QueryRecord& record, int16_t& id) {
+bool QueryManager::GetQuery(QueryContext::pointer& record, int16_t& id) {
   while (query_queue_.size()) {
-    auto& current = query_queue_.front();
-    if (current.first.expired()) {
-      query_queue_.pop();
-      continue;
-    }
-    record = std::move(current);
-    id = counter_++;
+    record = query_queue_.front().lock();
     query_queue_.pop();
-    return true;
+    if (record) {
+      id = counter_++;
+      return true;
+    }
   }
   return false;
 }
