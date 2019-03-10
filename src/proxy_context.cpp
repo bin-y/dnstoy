@@ -71,7 +71,7 @@ void Context::HandleUserMessage(
   using ResultType = dns::MessageDecoder::ResultType;
   static auto query_timeout_ = std::chrono::milliseconds(
       Configuration::get("query-timeout").as<uint32_t>());
-  auto query = QueryContext::create();
+  auto query = QueryContextPool::get().get_object();
   uint16_t message_length = data_size;
   uint16_t message_offset = 0;
   if (udp_endpoint) {

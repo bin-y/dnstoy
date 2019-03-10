@@ -8,6 +8,7 @@
 #include <vector>
 #include "dns.hpp"
 #include "engine.hpp"
+#include "shared_object_pool.hpp"
 
 namespace dnstoy {
 
@@ -27,6 +28,11 @@ class QueryContext : public std::enable_shared_from_this<QueryContext> {
 
   static pointer create() { return pointer(new QueryContext()); }
 
+  template <typename DeleterType>
+  static pointer create_with_deleter(DeleterType&& deleter) {
+    return pointer(new QueryContext(), std::forward<DeleterType>(deleter));
+  }
+
   template <typename DurationType>
   void LockPointerFor(DurationType duration) {
     TcpEndpoint a;
@@ -34,10 +40,24 @@ class QueryContext : public std::enable_shared_from_this<QueryContext> {
     timer_.async_wait([_ = shared_from_this()](boost::system::error_code) {});
   }
 
+  void on_recycled_by_object_pool() {
+    // endpoint = TcpEndpoint{};
+    query.reset();
+    answer.reset();
+    raw_message.clear();
+    rcode = dns::RCODE::SERVER_FAILURE;
+    handler = nullptr;
+  }
+
  private:
   QueryContext() : timer_(Engine::get().GetExecutor()) {}
   boost::asio::steady_timer timer_;
 };
+
+using QueryContextPool = SharedObjectPool<
+    QueryContext, 32,
+    SharedObjectPoolObjectCreationMethod::
+        CreateAndCreateWithDeleterFunctionReturningSharedPointer>;
 
 class QueryManager {
  public:

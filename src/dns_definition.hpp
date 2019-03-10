@@ -107,6 +107,13 @@ struct Message {
   std::vector<ResourceRecord> answers;
   std::vector<ResourceRecord> authorities;
   std::vector<ResourceRecord> additional;
+
+  void reset() {
+    questions.clear();
+    answers.clear();
+    authorities.clear();
+    additional.clear();
+  }
 };
 
 struct MessageView {
