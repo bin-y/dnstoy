@@ -41,6 +41,7 @@ void Resolver::Resolve(QueryContext::weak_pointer query) {
 
 int Resolver::init() {
   auto configuration = Configuration::get("remote-servers").as<string>();
+  // example: tls@853|udp@53/8.8.8.8|8.8.4.4/dns.google
   std::regex entries_regex("[^,]+");
   std::regex options_regex("/?([^/]*)");
   std::regex sub_option_regex("[^|]+");
