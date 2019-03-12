@@ -57,7 +57,6 @@ class Context : public std::enable_shared_from_this<Context> {
                          uint16_t data_size,
                          const boost::asio::ip::udp::endpoint* udp_endpoint);
   void HandleResolvedQuery(QueryContext::pointer&& query);
-  static void Resolve(QueryContext::pointer& query);
   void QueueReply(QueryContext::pointer&& query);
   void DoWrite();
 };

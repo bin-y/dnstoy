@@ -9,10 +9,12 @@
 namespace dnstoy {
 
 class Configuration {
- private:
-  static boost::program_options::variables_map variables_;
-
  public:
+  static inline const boost::program_options::variable_value& get(
+      const std::string& name) {
+    return variables_[name];
+  }
+
   template <class charT>
   static int init(int argc, const charT* const argv[]) {
     namespace bpo = boost::program_options;
@@ -35,13 +37,6 @@ class Configuration {
       return 1;
     }
 
-    std::ifstream ifs(variables_["config"].as<string>().c_str());
-    if (ifs.fail()) {
-      cerr << "Error opening config file: "
-           << variables_["config"].as<string>().c_str() << "\n";
-      return 1;
-    }
-
     bpo::options_description configurations("Configurations");
     auto add_configuration_option = configurations.add_options();
     add_configuration_option("listen-address",
@@ -55,20 +50,25 @@ class Configuration {
                              "udp payload size limit should between "
                              "4096(rfc5625) ~ 65507(max udp payload size)");
     add_configuration_option("query-timeout",
-                             bpo::value<uint32_t>()->default_value(3000),
+                             bpo::value<uint32_t>()->default_value(10000),
                              "timeout for every query in milliseconds");
-    add_configuration_option("remote-servers",
-                             bpo::value<string>()->default_value(
-                                 "tls#1.0.0.1#853#cloudflare-dns.com"),
-                             "foreign dns server");
-    bpo::store(bpo::parse_config_file(ifs, configurations), variables_);
+    add_configuration_option(
+        "remote-servers",
+        bpo::value<string>()->default_value(
+            "tls@853/1.0.0.1/cloudflare-dns.com"),
+        "foreign dns server format:\n"
+        "transport_type1[@port][|transport_type2][/address1][|address2]"
+        "[/hostname],///,...");
+    bpo::store(bpo::parse_config_file(variables_["config"].as<string>().c_str(),
+                                      configurations),
+               variables_);
     bpo::notify(variables_);
     return 0;
   }
-  static inline const boost::program_options::variable_value& get(
-      const std::string& name) {
-    return variables_[name];
-  }
+
+ private:
+  int ParseConfigurationFile();
+  static boost::program_options::variables_map variables_;
 };
 
 }  // namespace dnstoy

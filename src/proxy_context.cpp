@@ -3,7 +3,7 @@
 #include <iostream>
 #include <vector>
 #include "proxy.hpp"
-#include "tls_resolver.hpp"
+#include "resolver.hpp"
 
 namespace endian = boost::endian;
 using boost::asio::async_write;
@@ -97,10 +97,10 @@ void Context::HandleUserMessage(
   tcp_message->message_length = endian::native_to_big(message_length);
   memcpy(tcp_message->message, data + message_offset, message_length);
 
-  query->LockPointerFor(query_timeout_);
   query->handler = std::bind(&Context::HandleResolvedQuery, shared_from_this(),
                              std::placeholders::_1);
-  Resolve(query);
+  query->LockPointerFor(query_timeout_);
+  Resolver::Resolve(query);
 }
 
 void Context::HandleResolvedQuery(QueryContext::pointer&& query) {
@@ -183,26 +183,6 @@ void Context::DoWrite() {
     async_write(socket, boost::asio::buffer(write_data, write_size),
                 std::move(handler));
   }
-}
-
-void Context::Resolve(QueryContext::pointer& query) {
-  // TODO: select resolver by rule
-  static thread_local std::unique_ptr<TlsResolver> tls_resolver_;
-  if (!tls_resolver_) {
-    // TODO: handle multiple server in configuration
-    auto resolvers = Configuration::get("remote-servers").as<string>();
-    if (strncmp(resolvers.c_str(), "tls#", 4) != 0) {
-      assert(false);
-      LOG_ERROR("Currently only support tls remote");
-    }
-    tls_resolver_ = std::make_unique<TlsResolver>(&resolvers[4]);
-    if (!tls_resolver_->Init()) {
-      LOG_ERROR("Check configure:" << resolvers);
-      tls_resolver_ = nullptr;
-      return;
-    }
-  }
-  tls_resolver_->Resolve(query);
 }
 
 }  // namespace proxy

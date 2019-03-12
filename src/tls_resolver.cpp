@@ -1,8 +1,6 @@
 #include "tls_resolver.hpp"
 #include <boost/endian/conversion.hpp>
-#include <boost/lexical_cast.hpp>
 #include <chrono>
-#include <string>
 #include "configuration.hpp"
 #include "engine.hpp"
 #include "logging.hpp"
@@ -10,74 +8,30 @@
 
 namespace ssl = boost::asio::ssl;
 namespace endian = boost::endian;
-using boost::bad_lexical_cast;
-using boost::lexical_cast;
 using boost::asio::async_read;
 using boost::asio::async_write;
 using boost::asio::ip::make_address;
 using boost::asio::ip::tcp;
 using boost::system::error_code;
-using std::cout;
-using std::endl;
-using std::make_shared;
-using std::string;
-using std::chrono::milliseconds;
+using std::chrono::seconds;
 
 namespace dnstoy {
 
-TlsResolver::TlsResolver(const string& config)
-    : config_(config), timeout_timer_(Engine::get().GetExecutor()) {}
-
-bool TlsResolver::Init() {
-  try {
-    string address;
-    string port_string;
-    uint16_t port_number;
-    auto begin = 0;
-    auto end = config_.find('#', begin);
-    if (end == string::npos) {
-      return false;
-    }
-    address = config_.substr(begin, end - begin);
-    begin = end + 1;
-
-    end = config_.find('#', begin);
-    if (end == string::npos) {
-      return false;
-    }
-    port_string = config_.substr(begin, end - begin);
-    begin = end + 1;
-
-    end = config_.find('#', begin);
-    if (end == string::npos) {
-      hostname_ = config_.substr(begin);
-    } else {
-      hostname_ = config_.substr(begin, end - begin);
-    }
-
-    if (port_string.empty()) {
-      port_string = "853";
-    }
-
-    if (address.empty()) {
-      tcp::resolver resolver(Engine::get().GetExecutor());
-      endpoints_ = resolver.resolve(hostname_, port_string);
-    } else {
-      port_number = lexical_cast<decltype(port_number)>(port_string);
-      endpoints_ = tcp::endpoint(make_address(address), port_number);
-    }
-    return true;
-  } catch (...) {
-    return false;
-  }
+TlsResolver::TlsResolver(const std::string& hostname,
+                         const tcp_endpoints_type& endpoints)
+    : hostname_(hostname),
+      endpoints_(endpoints),
+      timeout_timer_(Engine::get().GetExecutor()),
+      ssl_context_(ssl::context::tls_client) {
+  // TODO: support more tls option from configuration
+  // Use system cert
+  ssl_context_.set_default_verify_paths();
+  // minor tls version set to 1.2
+  ssl_context_.set_options(ssl::context::default_workarounds |
+                           ssl::context::no_tlsv1 | ssl::context::no_tlsv1_1);
 }
 
 void TlsResolver::Resolve(QueryContext::weak_pointer&& query) {
-  if (std::holds_alternative<nullptr_t>(endpoints_)) {
-    assert(false);
-    LOG_ERROR("Not initialized!");
-    return;
-  }
   query_manager_.QueueQuery(std::move(query));
   if (consuming_query_record_) {
     return;
@@ -116,9 +70,9 @@ void TlsResolver::CloseConnection() {
 void TlsResolver::ResetConnection() {
   CloseConnection();
   message_reader_.reset();
-  socket_ = std::make_unique<stream_type>(Engine::get().GetExecutor(),
-                                          GetSSLContextForConfig(config_));
-  LOG_INFO("connect to " << config_);
+  socket_ =
+      std::make_unique<stream_type>(Engine::get().GetExecutor(), ssl_context_);
+  LOG_INFO("connect to " << hostname_);
   sent_queries_.clear();
 
   socket_->set_verify_mode(ssl::verify_peer);
@@ -145,7 +99,7 @@ void TlsResolver::ResetConnection() {
         return preverified;
       });
 
-  UpdateSocketTimeout(std::chrono::seconds(10));
+  UpdateSocketTimeout(seconds(10));
 
   auto handler = [this](const boost::system::error_code& error,
                         const tcp::endpoint& /*endpoint*/) {
@@ -157,15 +111,8 @@ void TlsResolver::ResetConnection() {
     }
   };
 
-  if (auto endpoint =
-          std::get_if<boost::asio::ip::tcp::endpoint>(&endpoints_)) {
-    socket_->lowest_layer().async_connect(
-        *endpoint, std::bind(handler, std::placeholders::_1, *endpoint));
-  } else {
-    boost::asio::async_connect(
-        socket_->lowest_layer(),
-        std::get<tcp::resolver::results_type>(endpoints_), std::move(handler));
-  }
+  boost::asio::async_connect(socket_->lowest_layer(), endpoints_,
+                             std::move(handler));
 }
 
 void TlsResolver::Handshake() {
@@ -284,25 +231,6 @@ void TlsResolver::HandleServerMessage(MessageReader::Reason reason,
 
   LOG_TRACE(<< context.query.header.id << "|" << id << " answered");
   context.handler(std::move(query));
-}
-
-boost::asio::ssl::context& TlsResolver::GetSSLContextForConfig(
-    const std::string& config) {
-  static thread_local std::unordered_map<string, ssl::context>
-      ssl_context_for_config_;
-  auto emplace_result = ssl_context_for_config_.emplace(
-      std::make_pair(config, ssl::context::tls_client));
-  auto& result = emplace_result.first->second;
-  if (emplace_result.second) {
-    // new context
-    // TODO: support more tls option from configuration
-    // Use system cert
-    result.set_default_verify_paths();
-    // minor tls version set to 1.2
-    result.set_options(ssl::context::default_workarounds |
-                       ssl::context::no_tlsv1 | ssl::context::no_tlsv1_1);
-  }
-  return result;
 }
 
 }  // namespace dnstoy
