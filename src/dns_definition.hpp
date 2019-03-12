@@ -82,7 +82,7 @@ struct ResourceRecord {
 
 struct Header {
   int16_t id;
-  bool isQuery;
+  bool isResponse;
   int16_t operation;
   bool isAuthoritativeAnswer;
   bool isTruncated;

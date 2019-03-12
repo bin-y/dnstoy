@@ -55,7 +55,7 @@ MessageEncoder::ResultType MessageEncoder::Encode(const Message& message,
     buffer.resize(sizeof(RawHeader));
     auto destination = reinterpret_cast<RawHeader*>(buffer.data());
     destination->ID = endian::native_to_big(source.id);
-    WRITE_FLAG(destination->FLAGS, QR, source.isQuery);
+    WRITE_FLAG(destination->FLAGS, QR, source.isResponse);
     WRITE_FLAG(destination->FLAGS, Opcode, source.operation);
     WRITE_FLAG(destination->FLAGS, AA, source.isAuthoritativeAnswer);
     WRITE_FLAG(destination->FLAGS, TC, source.isTruncated);

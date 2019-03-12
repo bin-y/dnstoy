@@ -183,7 +183,7 @@ MessageDecoder::ResultType MessageDecoder::DecodeCompleteMesssage(
     // decode header
     auto& header = *reinterpret_cast<const RawHeader*>(buffer);
     message.header.id = endian::big_to_native(header.ID);
-    message.header.isQuery = READ_FLAG(header.FLAGS, QR);
+    message.header.isResponse = READ_FLAG(header.FLAGS, QR);
     message.header.operation = READ_FLAG(header.FLAGS, Opcode);
     message.header.isAuthoritativeAnswer = READ_FLAG(header.FLAGS, AA);
     message.header.isTruncated = READ_FLAG(header.FLAGS, TC);
