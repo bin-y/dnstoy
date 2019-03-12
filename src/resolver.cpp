@@ -57,7 +57,7 @@ int Resolver::init() {
     regex_token_iterator option(entry->first, entry->second, options_regex,
                                 1);  // 1 is regex sub match index
     for (auto i = 0; option != regex_token_end; option++, i++) {
-      if (option->first == option->second) {
+      if (option->length() == 0) {
         continue;
       }
       switch (i) {
@@ -66,21 +66,17 @@ int Resolver::init() {
           regex_token_iterator transport(option->first, option->second,
                                          sub_option_regex);
           while (transport != regex_token_end) {
-            string_view transport_str(&*transport->first,
-                                      transport->second - transport->first);
-            if (transport_str == "tls" ||
-                transport_str.compare(0, 4, "tls@") == 0) {
-              if (transport_str.length() == 3) {
-                tls_port_number = 853;
-              } else {
-                auto port_number = atoi(&transport_str[4]);
-                if (port_number <= 0 ||
-                    port_number > std::numeric_limits<uint16_t>::max()) {
-                  LOG_ERROR(<< *entry << " invalid port number "
-                            << port_number);
-                }
-                tls_port_number = port_number;
+            auto transport_str = transport->str();
+            if (transport_str == "tls") {
+              tls_port_number = 853;
+            } else if (transport_str.compare(0, 4, "tls@") == 0) {
+              auto port_number = std::stoi(transport_str.substr(4));
+              if (port_number <= 0 ||
+                  port_number > std::numeric_limits<uint16_t>::max()) {
+                LOG_ERROR(<< *entry << " invalid port number " << port_number);
+                return -1;
               }
+              tls_port_number = port_number;
             } else {
               LOG_ERROR(<< "unknown transport type: " << transport_str
                         << " check " << *entry);
@@ -94,8 +90,7 @@ int Resolver::init() {
           regex_token_iterator address(option->first, option->second,
                                        sub_option_regex);
           while (address != regex_token_end) {
-            addresses.emplace_back(&*address->first,
-                                   address->second - address->first);
+            addresses.emplace_back(&*address->first, address->length());
             address++;
           }
         } break;
