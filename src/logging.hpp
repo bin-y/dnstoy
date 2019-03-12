@@ -25,8 +25,8 @@ void InitLogging();
 #endif
 
 #define LOG_INFO(expression) \
-  DNSTOY_LOG_TRIVIAL(info, "\e[239m", __LINE__) expression
+  DNSTOY_LOG_TRIVIAL(info, "\e[39m", __LINE__) expression
 #define LOG_ERROR(expression) \
-  DNSTOY_LOG_TRIVIAL(error, "\e[242m", __LINE__) expression
+  DNSTOY_LOG_TRIVIAL(error, "\e[91m", __LINE__) expression
 
 #endif  // DNSTOY_LOGGING_H_

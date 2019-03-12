@@ -14,7 +14,7 @@ namespace expr = boost::log::expressions;
 
 const auto date_time_formatter =
     expr::stream << expr::format_date_time<boost::posix_time::ptime>(
-                        "TimeStamp", "e[15m%m%d %H:%M:%S.%f")
+                        "TimeStamp", "\e[32m%m%d %H:%M:%S.%f")
                  << expr::message;
 
 void InitLogging() {
