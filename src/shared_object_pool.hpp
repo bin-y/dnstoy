@@ -53,6 +53,7 @@ class SharedObjectPool {
     }
     // non of object in pool is available
     if (size_ < PoolSizePerThread) {
+      size_++;
       // pool is not full, create shared_ptr with deleter
       if constexpr (ObjectCreationMethod ==
                     SharedObjectPoolObjectCreationMethod::Direct) {
