@@ -55,12 +55,12 @@ MessageEncoder::ResultType MessageEncoder::Encode(const Message& message,
     buffer.resize(sizeof(RawHeader));
     auto destination = reinterpret_cast<RawHeader*>(buffer.data());
     destination->ID = endian::native_to_big(source.id);
-    WRITE_FLAG(destination->FLAGS, QR, source.isResponse);
+    WRITE_FLAG(destination->FLAGS, QR, source.isResponse ? 1 : 0);
     WRITE_FLAG(destination->FLAGS, Opcode, source.operation);
-    WRITE_FLAG(destination->FLAGS, AA, source.isAuthoritativeAnswer);
-    WRITE_FLAG(destination->FLAGS, TC, source.isTruncated);
-    WRITE_FLAG(destination->FLAGS, RD, source.isRecursionDesired);
-    WRITE_FLAG(destination->FLAGS, RA, source.isRecursionAvailable);
+    WRITE_FLAG(destination->FLAGS, AA, source.isAuthoritativeAnswer ? 1 : 0);
+    WRITE_FLAG(destination->FLAGS, TC, source.isTruncated ? 1 : 0);
+    WRITE_FLAG(destination->FLAGS, RD, source.isRecursionDesired ? 1 : 0);
+    WRITE_FLAG(destination->FLAGS, RA, source.isRecursionAvailable ? 1 : 0);
     WRITE_FLAG(destination->FLAGS, Z, source.z);
     WRITE_FLAG(destination->FLAGS, RCODE, source.response_code);
     SAFE_SET_INT(destination->QDCOUNT, message.questions.size());
