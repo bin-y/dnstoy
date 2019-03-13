@@ -40,6 +40,7 @@ void Context::ReplyFailure(QueryContext::pointer&& query) {
 
   dns::Message response;
   response.header.id = id;
+  response.header.isResponse = true;
   response.header.response_code = static_cast<int16_t>(rcode);
   auto encode_result = dns::MessageEncoder::Encode(
       response, buffer, offsetof(dns::RawTcpMessage, message));
