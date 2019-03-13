@@ -15,26 +15,18 @@ using std::string_view;
 
 namespace dnstoy {
 
-struct RemoteServer {
-  std::string hostname;
-  std::vector<boost::asio::ip::tcp::endpoint> tls_endpoints;
-  static thread_local std::unique_ptr<TlsResolver> tls_resolver;
-  // std::vector<boost::asio::ip::tcp::endpoint> https_endpoints;
-  // std::vector<boost::asio::ip::tcp::endpoint> tcp_endpoints;
-  // std::vector<boost::asio::ip::udp::endpoint> udp_endpoints;
-};
-
-thread_local std::unique_ptr<TlsResolver> RemoteServer::tls_resolver;
-
-static std::vector<RemoteServer> remote_servers;
+std::vector<Resolver::ServerConfiguration> Resolver::server_configurations;
+thread_local std::vector<Resolver::ServerInstanceStore>
+    Resolver::server_instances;
 
 void Resolver::Resolve(QueryContext::weak_pointer query) {
   // TODO: select server & resolver by rule
-  auto& server = remote_servers[0];
+  auto& server = server_instances[0];
   auto& tls_resolver = server.tls_resolver;
   if (!tls_resolver) {
     tls_resolver =
-        std::make_unique<TlsResolver>(server.hostname, server.tls_endpoints);
+        std::make_unique<TlsResolver>(server_configurations[0].hostname,
+                                      server_configurations[0].tls_endpoints);
   }
   tls_resolver->Resolve(std::move(query));
 }
@@ -52,7 +44,7 @@ int Resolver::init() {
   while (entry != regex_token_end) {
     std::vector<string_view> addresses;
     uint16_t tls_port_number = 0;
-    RemoteServer server;
+    ServerConfiguration server;
 
     regex_token_iterator option(entry->first, entry->second, options_regex,
                                 1);  // 1 is regex sub match index
@@ -140,7 +132,7 @@ int Resolver::init() {
       LOG_ERROR(<< *entry << "no available transport found");
       return -1;
     }
-    remote_servers.emplace_back(std::move(server));
+    server_configurations.emplace_back(std::move(server));
     entry++;
   }
 
