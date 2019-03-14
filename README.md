@@ -1,5 +1,5 @@
 # dnstoy
-a lightweight dns-to-tls proxy (WIP)
+a lightweight dns-over-tls proxy (WIP)
 
 ## Project status
 Not ready for production
