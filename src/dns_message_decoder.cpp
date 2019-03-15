@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include "dns.hpp"
+#include "logging.hpp"
 
 namespace endian = boost::endian;
 using std::string;
@@ -19,7 +20,7 @@ MessageDecoder::MessageDecoder() {}
 void MessageDecoder::reset() {
   current_section_ = Message::Section::HEADER;
   waiting_data_size_ = sizeof(RawHeader);
-  waiting_data_useful_ = true;
+  waiting_data_is_useful_ = true;
   offset_in_message_ = 0;
   current_element_offset_ = nullptr;
   last_element_offset_ = nullptr;
@@ -36,7 +37,7 @@ MessageDecoder::ResultType MessageDecoder::ViewData(MessageView& message,
   };
   while (true) {
     if (data_size < waiting_data_size_) {
-      if (!waiting_data_useful_) {
+      if (!waiting_data_is_useful_) {
         move_offset(data_size);
         waiting_data_size_ -= data_size;
       }
@@ -51,6 +52,7 @@ MessageDecoder::ResultType MessageDecoder::ViewData(MessageView& message,
     size_t size = data_size - walked_size;
 
     if (current_section_ == Message::Section::HEADER) {
+      // decode header
       auto& header = *reinterpret_cast<const RawHeader*>(data);
       message.id = endian::big_to_native(header.ID);
       message.answer_count = endian::big_to_native(header.ANCOUNT);
@@ -59,28 +61,27 @@ MessageDecoder::ResultType MessageDecoder::ViewData(MessageView& message,
       size_t resource_record_count = message.answer_count +
                                      message.authority_count +
                                      message.additional_count;
+
+      // check question & resource record count
       if (resource_record_count) {
-        message.resource_record_offsets.resize(resource_record_count);
-        memset(
-            message.resource_record_offsets.data(), 0,
-            message.resource_record_offsets.size() *
-                sizeof(decltype(message.resource_record_offsets)::value_type));
+        message.resource_record_offsets.resize(resource_record_count, 0);
         current_element_offset_ = message.resource_record_offsets.data();
         last_element_offset_ = &message.resource_record_offsets.back();
         current_section_ = Message::Section::ANSWER;
       }
       if (header.QDCOUNT) {
-        message.question_offsets.resize(endian::big_to_native(header.QDCOUNT));
-        memset(message.question_offsets.data(), 0,
-               message.question_offsets.size() *
-                   sizeof(decltype(message.question_offsets)::value_type));
+        message.question_offsets.resize(endian::big_to_native(header.QDCOUNT),
+                                        0);
         current_element_offset_ = message.question_offsets.data();
         last_element_offset_ = &message.question_offsets.back();
         current_section_ = Message::Section::QUESTION;
       }
+
+      // header decoded
       move_offset(sizeof(RawHeader));
 
       if (current_section_ == Message::Section::HEADER) {
+        // message have not any question or resource record
         message.size = offset_in_message_;
         return ResultType::good;
       }
@@ -89,6 +90,7 @@ MessageDecoder::ResultType MessageDecoder::ViewData(MessageView& message,
       continue;
     }
     if (waiting_field_ == FieldType::NAME) {
+      // begining of question / resource record
       if (*current_element_offset_ == 0) {
         *current_element_offset_ = offset_in_message_;
       }
@@ -103,14 +105,14 @@ MessageDecoder::ResultType MessageDecoder::ViewData(MessageView& message,
       switch (current_section_) {
         case Message::Section::QUESTION: {
           waiting_data_size_ = sizeof(RawQuestion) - sizeof(RawQuestion::QNAME);
-          waiting_data_useful_ = false;
+          waiting_data_is_useful_ = false;
         } break;
         case Message::Section::ANSWER:
         case Message::Section::AUTHORITY:
         case Message::Section::ADDITIONAL: {
           waiting_data_size_ =
               sizeof(RawResourceRecord) - sizeof(RawResourceRecord::NAME);
-          waiting_data_useful_ = true;
+          waiting_data_is_useful_ = true;
         } break;
         default:
           assert(false);
@@ -122,9 +124,10 @@ MessageDecoder::ResultType MessageDecoder::ViewData(MessageView& message,
     if (waiting_field_ == FieldType::AFTER_NAME) {
       switch (current_section_) {
         case Message::Section::QUESTION: {
+          // end of question field
           waiting_field_ = FieldType::NAME;
           waiting_data_size_ = 0;
-          waiting_data_useful_ = true;
+          waiting_data_is_useful_ = true;
           if (current_element_offset_ == last_element_offset_) {
             if (message.resource_record_offsets.size()) {
               current_section_ = Message::Section::ANSWER;
@@ -141,13 +144,15 @@ MessageDecoder::ResultType MessageDecoder::ViewData(MessageView& message,
         case Message::Section::ANSWER:
         case Message::Section::AUTHORITY:
         case Message::Section::ADDITIONAL: {
+          // middle of resource record
           auto field_size =
               sizeof(RawResourceRecord) - sizeof(RawResourceRecord::NAME);
           auto record = reinterpret_cast<const RawResourceRecord*>(
               begin - sizeof(RawResourceRecord::NAME));
-          current_element_offset_ += field_size;
+          move_offset(field_size);
+          // read rd size from resource record and wait for it
           waiting_data_size_ = endian::big_to_native(record->RDLENGTH);
-          waiting_data_useful_ = false;
+          waiting_data_is_useful_ = false;
         } break;
         default:
           assert(false);
@@ -157,6 +162,7 @@ MessageDecoder::ResultType MessageDecoder::ViewData(MessageView& message,
       continue;
     }
     if (waiting_field_ == FieldType::RDATA) {
+      // end of resource field
       if (current_element_offset_ == last_element_offset_) {
         message.size = offset_in_message_;
         return ResultType::good;
@@ -164,11 +170,12 @@ MessageDecoder::ResultType MessageDecoder::ViewData(MessageView& message,
         current_element_offset_++;
         waiting_field_ = FieldType::NAME;
         waiting_data_size_ = 0;
-        waiting_data_useful_ = true;
+        waiting_data_is_useful_ = true;
       }
       continue;
     }
     assert(false);
+    LOG_ERROR();
     return ResultType::bad;
   }
 }

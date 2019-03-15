@@ -32,7 +32,7 @@ class MessageDecoder {
   } waiting_field_ = FieldType::NAME;
 
   size_t waiting_data_size_ = sizeof(RawHeader);
-  bool waiting_data_useful_ = true;
+  bool waiting_data_is_useful_ = true;
   size_t offset_in_message_ = 0;
   size_t* current_element_offset_ = nullptr;
   size_t* last_element_offset_ = nullptr;
