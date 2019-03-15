@@ -47,8 +47,8 @@ MessageDecoder::ResultType MessageDecoder::ViewData(MessageView& message,
       return ResultType::indeterminate;
     }
 
-    auto begin = data + offset_in_message_;
-    size_t size = data_size - offset_in_message_;
+    auto begin = data + walked_size;
+    size_t size = data_size - walked_size;
 
     if (current_section_ == Message::Section::HEADER) {
       auto& header = *reinterpret_cast<const RawHeader*>(data);
