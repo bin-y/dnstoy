@@ -183,7 +183,6 @@ void TlsResolver::DoWrite() {
                   if (query) {
                     query->rcode = dns::RCODE::SERVER_FAILURE;
                     query->handler(std::move(query));
-                    return;
                   }
                   ResetConnection();
                   return;
