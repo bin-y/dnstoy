@@ -29,8 +29,8 @@ class Resolver {
     std::unique_ptr<TlsResolver> tls_resolver;
   };
 
-  static std::vector<ServerConfiguration> server_configurations;
-  static thread_local std::vector<ServerInstanceStore> server_instances;
+  static std::vector<ServerConfiguration> server_configurations_;
+  static thread_local std::vector<ServerInstanceStore> server_instances_;
 };
 
 }  // namespace dnstoy

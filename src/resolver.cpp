@@ -15,18 +15,18 @@ using std::string_view;
 
 namespace dnstoy {
 
-std::vector<Resolver::ServerConfiguration> Resolver::server_configurations;
+std::vector<Resolver::ServerConfiguration> Resolver::server_configurations_;
 thread_local std::vector<Resolver::ServerInstanceStore>
-    Resolver::server_instances;
+    Resolver::server_instances_;
 
 void Resolver::Resolve(QueryContext::weak_pointer query) {
   // TODO: select server & resolver by rule
-  auto& server = server_instances[0];
+  auto& server = server_instances_[0];
   auto& tls_resolver = server.tls_resolver;
   if (!tls_resolver) {
     tls_resolver =
-        std::make_unique<TlsResolver>(server_configurations[0].hostname,
-                                      server_configurations[0].tls_endpoints);
+        std::make_unique<TlsResolver>(server_configurations_[0].hostname,
+                                      server_configurations_[0].tls_endpoints);
   }
   tls_resolver->Resolve(std::move(query));
 }
@@ -132,10 +132,15 @@ int Resolver::init() {
       LOG_ERROR(<< *entry << "no available transport found");
       return -1;
     }
-    server_configurations.emplace_back(std::move(server));
+    server_configurations_.emplace_back(std::move(server));
     entry++;
   }
 
+  if (server_configurations_.empty()) {
+    LOG_ERROR("no available remote server found");
+    return -1;
+  }
+  server_instances_.resize(server_configurations_.size());
   return 0;
 }
 
