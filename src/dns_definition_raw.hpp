@@ -86,12 +86,9 @@ struct RawLabel {
       uint8_t data_length;
       char data[];
     } normal_type;
-    union {
-      uint8_t flag;
-      struct {
-        uint8_t offset_high;
-        uint8_t offset_low;
-      };
+    struct {
+      uint8_t high_part_with_flag;
+      uint8_t low_part;
     } offset_type;
   };
 };

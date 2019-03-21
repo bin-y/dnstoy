@@ -82,12 +82,12 @@ struct ResourceRecord {
 
 struct Header {
   int16_t id;
-  bool isResponse;
-  int16_t operation;
-  bool isAuthoritativeAnswer;
-  bool isTruncated;
-  bool isRecursionDesired;
-  bool isRecursionAvailable;
+  bool is_response;
+  int16_t operation_code;
+  bool is_authoritative_answer;
+  bool is_truncated;
+  bool is_recursion_desired;
+  bool is_recursion_available;
   int16_t z;
   int16_t response_code;
 };

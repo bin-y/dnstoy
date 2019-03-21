@@ -190,12 +190,12 @@ MessageDecoder::ResultType MessageDecoder::DecodeCompleteMesssage(
     // decode header
     auto& header = *reinterpret_cast<const RawHeader*>(buffer);
     message.header.id = endian::big_to_native(header.ID);
-    message.header.isResponse = READ_FLAG(header.FLAGS, QR);
-    message.header.operation = READ_FLAG(header.FLAGS, Opcode);
-    message.header.isAuthoritativeAnswer = READ_FLAG(header.FLAGS, AA);
-    message.header.isTruncated = READ_FLAG(header.FLAGS, TC);
-    message.header.isRecursionDesired = READ_FLAG(header.FLAGS, RD);
-    message.header.isRecursionAvailable = READ_FLAG(header.FLAGS, RA);
+    message.header.is_response = READ_FLAG(header.FLAGS, QR);
+    message.header.operation_code = READ_FLAG(header.FLAGS, Opcode);
+    message.header.is_authoritative_answer = READ_FLAG(header.FLAGS, AA);
+    message.header.is_truncated = READ_FLAG(header.FLAGS, TC);
+    message.header.is_recursion_desired = READ_FLAG(header.FLAGS, RD);
+    message.header.is_recursion_available = READ_FLAG(header.FLAGS, RA);
     message.header.z = READ_FLAG(header.FLAGS, Z);
     message.header.response_code = READ_FLAG(header.FLAGS, RCODE);
 
@@ -271,8 +271,9 @@ inline MessageDecoder::ResultType MessageDecoder::DecodeName(
           max_offset += label_size;
         }
 
-        auto to_offset = (label->offset_type.offset_high << 8) |
-                         label->offset_type.offset_low;
+        auto offset_high_part =
+            label->offset_type.high_part_with_flag & (~RawLabel::Flag::MASK);
+        auto to_offset = (offset_high_part << 8) | label->offset_type.low_part;
 
         if (to_offset >= from_offset) {
           // offset should point to the label occured before

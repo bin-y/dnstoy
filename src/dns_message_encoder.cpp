@@ -55,12 +55,12 @@ MessageEncoder::ResultType MessageEncoder::Encode(const Message& message,
     buffer.resize(sizeof(RawHeader));
     auto destination = reinterpret_cast<RawHeader*>(buffer.data());
     destination->ID = endian::native_to_big(source.id);
-    WRITE_FLAG(destination->FLAGS, QR, source.isResponse ? 1 : 0);
-    WRITE_FLAG(destination->FLAGS, Opcode, source.operation);
-    WRITE_FLAG(destination->FLAGS, AA, source.isAuthoritativeAnswer ? 1 : 0);
-    WRITE_FLAG(destination->FLAGS, TC, source.isTruncated ? 1 : 0);
-    WRITE_FLAG(destination->FLAGS, RD, source.isRecursionDesired ? 1 : 0);
-    WRITE_FLAG(destination->FLAGS, RA, source.isRecursionAvailable ? 1 : 0);
+    WRITE_FLAG(destination->FLAGS, QR, source.is_response ? 1 : 0);
+    WRITE_FLAG(destination->FLAGS, Opcode, source.operation_code);
+    WRITE_FLAG(destination->FLAGS, AA, source.is_authoritative_answer ? 1 : 0);
+    WRITE_FLAG(destination->FLAGS, TC, source.is_truncated ? 1 : 0);
+    WRITE_FLAG(destination->FLAGS, RD, source.is_recursion_desired ? 1 : 0);
+    WRITE_FLAG(destination->FLAGS, RA, source.is_recursion_available ? 1 : 0);
     WRITE_FLAG(destination->FLAGS, Z, source.z);
     WRITE_FLAG(destination->FLAGS, RCODE, source.response_code);
     SAFE_SET_INT(destination->QDCOUNT, message.questions.size());
@@ -199,8 +199,8 @@ inline bool EncodeName(MessageEncoderContext& context, const string& name) {
       context.buffer.resize(context.offset + 2);
       auto label =
           reinterpret_cast<RawLabel*>(context.buffer.data() + context.offset);
-      label->offset_type.offset_high = (i->second >> 8) & 0xFF;
-      label->offset_type.offset_low = i->second & 0xFF;
+      label->offset_type.high_part_with_flag = (i->second >> 8) & 0xFF;
+      label->offset_type.low_part = i->second & 0xFF;
       label->flag |= RawLabel::Flag::OFFSET;
       context.offset += 2;
       return true;
