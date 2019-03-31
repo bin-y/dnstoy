@@ -16,7 +16,7 @@ Not ready for production
 - [ ] Select foreign server by rule
 - [ ] Detect fastest server
 
-## Knowmore about dns-over-tls
+## Know more about dns-over-tls
 https://en.wikipedia.org/wiki/DNS_over_TLS
 
 https://developers.cloudflare.com/1.1.1.1/dns-over-tls/
