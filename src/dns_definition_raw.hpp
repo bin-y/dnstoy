@@ -4,7 +4,7 @@
 
 namespace dnstoy {
 namespace dns {
-#pragma pack(push, 0)
+#pragma pack(push, 1)
 
 struct RawTcpMessage {
   uint16_t message_length;

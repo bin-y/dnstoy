@@ -44,6 +44,7 @@ enum class TYPE : int16_t {
   TXT,        // text strings
   AAAA = 28,  // IPv6 address
   A6 = 38,
+  OPT = 41,      // OPT PSEUDOSECTION
   Q_AXFR = 252,  // A request for a transfer of an entire zone
   Q_MAILB,       // A request for mailbox-related records (MB, MG or MR)
   Q_MAILA,       // A request for mail agent RRs (Obsolete - see MX)
@@ -61,16 +62,16 @@ enum class CLASS : int16_t {
 
 struct Question {
   std::string name;
-  int16_t type;
-  int16_t the_class;
+  uint16_t type;
+  uint16_t the_class;
 
   inline void reset() { name.clear(); }
 };
 
 struct ResourceRecord {
   std::string name;
-  int16_t type;
-  int16_t the_class;
+  uint16_t type;
+  uint16_t the_class;
   uint32_t ttl;
   std::vector<uint8_t> rdata;
 

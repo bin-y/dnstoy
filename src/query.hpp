@@ -22,7 +22,7 @@ class QueryContext : public std::enable_shared_from_this<QueryContext> {
   dns::Message query;
   dns::Message answer;
   std::vector<uint8_t>
-      raw_message;  // query or answer, with 2 octet tcp length field
+      raw_message;  // query or answer in dns::RawTcpMessage format
   dns::RCODE rcode = dns::RCODE::SERVER_FAILURE;
   std::function<void(QueryContext::pointer&&)> handler;
 
