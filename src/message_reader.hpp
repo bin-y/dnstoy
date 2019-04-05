@@ -133,6 +133,7 @@ class MessageReader {
         }
         handler(Reason::NEW_MESSAGE, data, tcp_message_size_);
         data_size_ -= tcp_message_size_;
+        data_offset_ += tcp_message_size_;
         tcp_message_size_ = 0;
       } while (data_size_ >= tcp_message_size_);
       DoReadStream(stream, std::move(handler));
