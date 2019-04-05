@@ -62,6 +62,7 @@ using QueryContextPool = SharedObjectPool<
 class QueryManager {
  public:
   void QueueQuery(QueryContext::weak_pointer&& context);
+  size_t QueueSize();
   bool GetQuery(QueryContext::pointer& context, int16_t& id);
 
  private:
