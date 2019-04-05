@@ -206,7 +206,7 @@ MessageDecoder::ResultType MessageDecoder::DecodeCompleteMesssage(
       message.authorities.resize(endian::big_to_native(header.NSCOUNT));
     }
     if (header.ANCOUNT) {
-      message.answers.resize(endian::big_to_native(header.NSCOUNT));
+      message.answers.resize(endian::big_to_native(header.ANCOUNT));
     }
     if (header.QDCOUNT) {
       message.questions.resize(endian::big_to_native(header.QDCOUNT));
