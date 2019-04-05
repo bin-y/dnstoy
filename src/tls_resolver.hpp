@@ -29,7 +29,6 @@ class TlsResolver {
   tcp_endpoints_type endpoints_;
   std::unordered_map<int16_t, QueryContext::weak_pointer> sent_queries_;
   MessageReader message_reader_;
-  bool consuming_query_record_ = false;
   std::chrono::seconds idle_timeout_ = std::chrono::seconds(10);
   boost::asio::steady_timer timeout_timer_;
 

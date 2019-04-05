@@ -33,14 +33,12 @@ TlsResolver::TlsResolver(const std::string& hostname,
 
 void TlsResolver::Resolve(QueryContext::weak_pointer&& query) {
   query_manager_.QueueQuery(std::move(query));
-  if (consuming_query_record_) {
-    return;
-  }
-  consuming_query_record_ = true;
   if (!socket_) {
     ResetConnection();
   } else {
-    DoWrite();
+    if (query_manager_.QueueSize() == 1) {
+      DoWrite();
+    }
   }
 }
 
@@ -130,8 +128,12 @@ void TlsResolver::Handshake() {
           ResetConnection();
           return;
         }
-        LOG_TRACE("Handshake success, do write");
-        DoWrite();
+        LOG_TRACE("Handshake success");
+        UpdateSocketTimeout(idle_timeout_);
+        if (query_manager_.QueueSize()) {
+          LOG_TRACE("do write");
+          DoWrite();
+        }
         message_reader_.Start(
             *socket_, std::bind(&TlsResolver::HandleServerMessage, this,
                                 std::placeholders::_1, std::placeholders::_2,
@@ -149,8 +151,7 @@ void TlsResolver::DoWrite() {
 
   QueryContext::pointer query;
   int16_t id;
-  consuming_query_record_ = query_manager_.GetQuery(query, id);
-  if (!consuming_query_record_) {
+  if (!query_manager_.GetQuery(query, id)) {
     LOG_TRACE("Queue clear.");
     return;
   }
@@ -174,15 +175,19 @@ void TlsResolver::DoWrite() {
               [this, id](const boost::system::error_code& error,
                          std::size_t bytes_transfered) mutable {
                 if (error) {
+                  if (error == boost::asio::error::operation_aborted) {
+                    return;
+                  }
                   LOG_ERROR("Write failed " << error.message());
                   auto handle = sent_queries_.extract(id);
                   if (handle.empty()) {
                     LOG_ERROR("emmm...");
-                  }
-                  auto query = handle.mapped().lock();
-                  if (query) {
-                    query->rcode = dns::RCODE::SERVER_FAILURE;
-                    query->handler(std::move(query));
+                  } else {
+                    auto query = handle.mapped().lock();
+                    if (query) {
+                      query->rcode = dns::RCODE::SERVER_FAILURE;
+                      query->handler(std::move(query));
+                    }
                   }
                   ResetConnection();
                   return;
