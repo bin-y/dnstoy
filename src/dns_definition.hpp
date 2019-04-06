@@ -1,5 +1,6 @@
 #ifndef DNSTOY_DNS_DEFINITION_H_
 #define DNSTOY_DNS_DEFINITION_H_
+#include <iostream>
 #include <string>
 #include <vector>
 #include "dns_definition_raw.hpp"
@@ -114,6 +115,19 @@ struct Message {
     answers.clear();
     authorities.clear();
     additional.clear();
+  }
+
+  friend std::ostream& operator<<(std::ostream& os, const Message& message) {
+    os << "[" << message.header.id << "|"
+       << (message.header.is_response ? "R" : "Q") << "|OP"
+       << message.header.operation_code << "|AA"
+       << message.header.is_authoritative_answer << "|TC"
+       << message.header.is_truncated << "|RD"
+       << message.header.is_recursion_desired << "|RR"
+       << message.header.is_recursion_available << "|AA"
+       << message.header.is_authoritative_answer << "|Z" << message.header.z
+       << "|RC" << message.header.response_code << "]";
+    return os;
   }
 };
 
