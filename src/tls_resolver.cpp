@@ -33,7 +33,7 @@ TlsResolver::TlsResolver(const std::string& hostname,
 
 void TlsResolver::Resolve(QueryContext::weak_pointer&& query) {
   query_manager_.QueueQuery(std::move(query));
-  if (!socket_) {
+  if (status_ != Status::READY) {
     ResetConnection();
   } else {
     if (query_manager_.QueueSize() == 1) {
@@ -63,10 +63,15 @@ void TlsResolver::CloseConnection() {
   socket_->async_shutdown([socket = std::move(socket_)](error_code error) {
     socket->lowest_layer().close();
   });
+  status_ = Status::CLOSED;
 }
 
 void TlsResolver::ResetConnection() {
+  if (status_ != Status::CLOSED && status_ != Status::READY) {
+    return;
+  }
   CloseConnection();
+  status_ = Status::CONNECTING;
   message_reader_.reset();
   socket_ =
       std::make_unique<stream_type>(Engine::get().GetExecutor(), ssl_context_);
@@ -83,8 +88,6 @@ void TlsResolver::ResetConnection() {
                                     X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
     X509_VERIFY_PARAM_set1_host(param, hostname_.data(), hostname_.length());
   }
-  // TODO: support DANE
-  // https://en.wikipedia.org/wiki/DNS-based_Authentication_of_Named_Entities
 
   socket_->set_verify_callback(
       [this](bool preverified, boost::asio::ssl::verify_context& ctx) {
@@ -102,6 +105,7 @@ void TlsResolver::ResetConnection() {
   auto handler = [this](const boost::system::error_code& error,
                         const tcp::endpoint& /*endpoint*/) {
     if (!error) {
+      status_ = Status::CONNECTED;
       Handshake();
     } else {
       LOG_ERROR("Connect failed: " << error.message());
@@ -114,12 +118,12 @@ void TlsResolver::ResetConnection() {
 }
 
 void TlsResolver::Handshake() {
-  if (!socket_) {
-    LOG_INFO("Connection timeout");
+  if (status_ != Status::CONNECTED) {
     ResetConnection();
     return;
   }
   UpdateSocketTimeout(idle_timeout_);
+  status_ = Status::HANDSHAKING;
   socket_->async_handshake(
       boost::asio::ssl::stream_base::client,
       [this](const boost::system::error_code& error) {
@@ -128,6 +132,7 @@ void TlsResolver::Handshake() {
           ResetConnection();
           return;
         }
+        status_ = Status::READY;
         LOG_TRACE("Handshake success");
         UpdateSocketTimeout(idle_timeout_);
         if (query_manager_.QueueSize()) {
@@ -142,8 +147,8 @@ void TlsResolver::Handshake() {
 }
 
 void TlsResolver::DoWrite() {
-  if (!socket_) {
-    LOG_INFO("Connection timeout");
+  if (status_ != Status::READY) {
+    LOG_INFO("Connection not ready");
     ResetConnection();
     return;
   }
@@ -159,7 +164,11 @@ void TlsResolver::DoWrite() {
   assert(query);
   auto& context = *query.get();
 
-  LOG_TRACE("Query" << context.query.header.id << "|" << id << "start write");
+  LOG_TRACE("Query " << (context.query.questions.size()
+                             ? context.query.questions[0].name
+                             : "")
+                     << context.query << "|" << id << " start write");
+
   auto encode_result = dns::MessageEncoder::RewriteIDToTcpMessage(
       context.raw_message.data(), context.raw_message.size(), id);
   if (encode_result != ResultType::good) {
@@ -172,8 +181,8 @@ void TlsResolver::DoWrite() {
   }
   sent_queries_[id] = query;
   async_write(*socket_, boost::asio::buffer(context.raw_message),
-              [this, id](const boost::system::error_code& error,
-                         std::size_t bytes_transfered) mutable {
+              [this, query, id](const boost::system::error_code& error,
+                                std::size_t bytes_transfered) mutable {
                 if (error) {
                   if (error == boost::asio::error::operation_aborted) {
                     return;
@@ -182,12 +191,10 @@ void TlsResolver::DoWrite() {
                   auto handle = sent_queries_.extract(id);
                   if (handle.empty()) {
                     LOG_ERROR("emmm...");
-                  } else {
-                    auto query = handle.mapped().lock();
-                    if (query) {
-                      query->rcode = dns::RCODE::SERVER_FAILURE;
-                      query->handler(std::move(query));
-                    }
+                  }
+                  if (query.use_count() == 1) {  // expired
+                    query->rcode = dns::RCODE::SERVER_FAILURE;
+                    query->handler(std::move(query));
                   }
                   ResetConnection();
                   return;
@@ -206,8 +213,7 @@ void TlsResolver::HandleServerMessage(MessageReader::Reason reason,
     LOG_ERROR("empty message!");
     return;
   }
-  auto header = reinterpret_cast<const dns::RawHeader*>(
-      data + offsetof(dns::RawTcpMessage, message));
+  UpdateSocketTimeout(idle_timeout_);
   using ResultType = dns::MessageDecoder::ResultType;
   int16_t id;
   auto decode_result =
@@ -217,14 +223,34 @@ void TlsResolver::HandleServerMessage(MessageReader::Reason reason,
     return;
   }
   auto query_handle = sent_queries_.extract(id);
+
+#ifndef NDEBUG
+  dns::Message message;
+  dns::MessageDecoder::DecodeCompleteMesssage(
+      message, data + offsetof(dns::RawTcpMessage, message),
+      data_size - offsetof(dns::RawTcpMessage, message));
+#endif
+
   if (!query_handle) {
-    LOG_ERROR("?|" << id << " answer find no record");
+    LOG_ERROR("?|"
+#ifdef NDEBUG
+              << id
+#else
+              << message
+#endif
+              << " answer find no record");
     return;
   }
   auto& query_weak_pointer = query_handle.mapped();
   auto query = query_weak_pointer.lock();
   if (!query) {
-    LOG_INFO("?|" << id << " answer timed out");
+    LOG_INFO("?|"
+#ifdef NDEBUG
+             << id
+#else
+             << message
+#endif
+             << " answer timed out");
     return;
   }
   auto& context = *query;
@@ -233,7 +259,7 @@ void TlsResolver::HandleServerMessage(MessageReader::Reason reason,
   dns::MessageEncoder::RewriteIDToTcpMessage(
       context.raw_message.data(), data_size, context.query.header.id);
 
-  LOG_TRACE(<< context.query.header.id << "|" << id << " answered");
+  LOG_TRACE(<< context.query.header.id << "|" << message << " answered");
   context.handler(std::move(query));
 }
 
