@@ -33,12 +33,10 @@ TlsResolver::TlsResolver(const std::string& hostname,
 
 void TlsResolver::Resolve(QueryContext::weak_pointer&& query) {
   query_manager_.QueueQuery(std::move(query));
-  if (status_ != Status::READY) {
+  if (status_ == Status::CLOSED) {
     ResetConnection();
   } else {
-    if (query_manager_.QueueSize() == 1) {
-      DoWrite();
-    }
+    DoWrite();
   }
 }
 
@@ -67,7 +65,8 @@ void TlsResolver::CloseConnection() {
 }
 
 void TlsResolver::ResetConnection() {
-  if (status_ != Status::CLOSED && status_ != Status::READY) {
+  if (status_ == Status::CONNECTING || status_ == Status::CONNECTED ||
+      status_ == Status::HANDSHAKING) {
     return;
   }
   CloseConnection();
@@ -104,13 +103,13 @@ void TlsResolver::ResetConnection() {
 
   auto handler = [this](const boost::system::error_code& error,
                         const tcp::endpoint& /*endpoint*/) {
-    if (!error) {
-      status_ = Status::CONNECTED;
-      Handshake();
-    } else {
+    if (error) {
       LOG_ERROR("Connect failed: " << error.message());
       ResetConnection();
+      return;
     }
+    status_ = Status::CONNECTED;
+    Handshake();
   };
 
   boost::asio::async_connect(socket_->lowest_layer(), endpoints_,
@@ -147,6 +146,10 @@ void TlsResolver::Handshake() {
 }
 
 void TlsResolver::DoWrite() {
+  if (status_ == Status::WRITING) {
+    LOG_TRACE("already writing");
+    return;
+  }
   if (status_ != Status::READY) {
     LOG_INFO("Connection not ready");
     ResetConnection();
@@ -160,6 +163,7 @@ void TlsResolver::DoWrite() {
     LOG_TRACE("Queue clear.");
     return;
   }
+  status_ = Status::WRITING;
   using ResultType = dns::MessageEncoder::ResultType;
   assert(query);
   auto& context = *query.get();
@@ -199,6 +203,7 @@ void TlsResolver::DoWrite() {
                   ResetConnection();
                   return;
                 }
+                status_ = Status::READY;
                 DoWrite();
               });
 }

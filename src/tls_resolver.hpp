@@ -37,6 +37,7 @@ class TlsResolver {
     CONNECTED,
     HANDSHAKING,
     READY,
+    WRITING,
   } status_ = Status::CLOSED;
 
   template <typename DurationType>
