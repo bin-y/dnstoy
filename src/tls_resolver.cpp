@@ -75,7 +75,17 @@ void TlsResolver::ResetConnection() {
   socket_ =
       std::make_unique<stream_type>(Engine::get().GetExecutor(), ssl_context_);
   LOG_INFO("connect to " << hostname_);
-  sent_queries_.clear();
+
+  {
+    auto i = sent_queries_.begin();
+    while (i != sent_queries_.end()) {
+      auto& query = i->second;
+      if (!query.expired()) {
+        query_manager_.CutInQuery(std::move(query));
+      }
+      i = sent_queries_.erase(i);
+    }
+  }
 
   socket_->set_verify_mode(ssl::verify_peer);
 
