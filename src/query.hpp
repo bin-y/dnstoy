@@ -1,8 +1,8 @@
 #ifndef DNSTOY_QUERY_H_
 #define DNSTOY_QUERY_H_
 #include <boost/asio/steady_timer.hpp>
+#include <deque>
 #include <memory>
-#include <queue>
 #include <unordered_map>
 #include <variant>
 #include <vector>
@@ -62,11 +62,12 @@ using QueryContextPool = SharedObjectPool<
 class QueryManager {
  public:
   void QueueQuery(QueryContext::weak_pointer&& context);
+  void CutInQuery(QueryContext::weak_pointer&& context);
   size_t QueueSize();
   bool GetQuery(QueryContext::pointer& context, int16_t& id);
 
  private:
-  std::queue<QueryContext::weak_pointer> query_queue_;
+  std::deque<QueryContext::weak_pointer> query_queue_;
   int16_t counter_;
 };
 

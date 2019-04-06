@@ -5,6 +5,7 @@
 #include <chrono>
 #include <functional>
 #include <memory>
+#include <queue>
 #include <vector>
 #include "configuration.hpp"
 #include "dns.hpp"
