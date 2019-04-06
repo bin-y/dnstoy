@@ -33,7 +33,7 @@ TlsResolver::TlsResolver(const std::string& hostname,
 
 void TlsResolver::Resolve(QueryContext::weak_pointer&& query) {
   query_manager_.QueueQuery(std::move(query));
-  if (status_ == Status::CLOSED) {
+  if (io_status_ == IOStatus::NOT_INITIALIZED) {
     ResetConnection();
   } else {
     DoWrite();
@@ -61,16 +61,15 @@ void TlsResolver::CloseConnection() {
   socket_->async_shutdown([socket = std::move(socket_)](error_code error) {
     socket->lowest_layer().close();
   });
-  status_ = Status::CLOSED;
+  io_status_ = IOStatus::NOT_INITIALIZED;
 }
 
 void TlsResolver::ResetConnection() {
-  if (status_ == Status::CONNECTING || status_ == Status::CONNECTED ||
-      status_ == Status::HANDSHAKING) {
+  if (io_status_ == IOStatus::INITIALIZING) {
     return;
   }
   CloseConnection();
-  status_ = Status::CONNECTING;
+  io_status_ = IOStatus::INITIALIZING;
   message_reader_.reset();
   socket_ =
       std::make_unique<stream_type>(Engine::get().GetExecutor(), ssl_context_);
@@ -115,10 +114,10 @@ void TlsResolver::ResetConnection() {
                         const tcp::endpoint& /*endpoint*/) {
     if (error) {
       LOG_ERROR("Connect failed: " << error.message());
+      io_status_ = IOStatus::INITIALIZATION_FAILED;
       ResetConnection();
       return;
     }
-    status_ = Status::CONNECTED;
     Handshake();
   };
 
@@ -127,21 +126,17 @@ void TlsResolver::ResetConnection() {
 }
 
 void TlsResolver::Handshake() {
-  if (status_ != Status::CONNECTED) {
-    ResetConnection();
-    return;
-  }
   UpdateSocketTimeout(idle_timeout_);
-  status_ = Status::HANDSHAKING;
   socket_->async_handshake(
       boost::asio::ssl::stream_base::client,
       [this](const boost::system::error_code& error) {
         if (error) {
           LOG_ERROR("Handshake failed: " << error.message());
+          io_status_ = IOStatus::INITIALIZATION_FAILED;
           ResetConnection();
           return;
         }
-        status_ = Status::READY;
+        io_status_ = IOStatus::READY;
         LOG_TRACE("Handshake success");
         UpdateSocketTimeout(idle_timeout_);
         if (query_manager_.QueueSize()) {
@@ -156,12 +151,12 @@ void TlsResolver::Handshake() {
 }
 
 void TlsResolver::DoWrite() {
-  if (status_ == Status::WRITING) {
+  if (io_status_ == IOStatus::WRITING) {
     LOG_TRACE("already writing");
     return;
   }
-  if (status_ != Status::READY) {
-    LOG_INFO("Connection not ready");
+  if (io_status_ != IOStatus::READY) {
+    LOG_TRACE("IO not ready");
     ResetConnection();
     return;
   }
@@ -173,7 +168,7 @@ void TlsResolver::DoWrite() {
     LOG_TRACE("Queue clear.");
     return;
   }
-  status_ = Status::WRITING;
+  io_status_ = IOStatus::WRITING;
   using ResultType = dns::MessageEncoder::ResultType;
   assert(query);
   auto& context = *query.get();
@@ -213,7 +208,7 @@ void TlsResolver::DoWrite() {
                   ResetConnection();
                   return;
                 }
-                status_ = Status::READY;
+                io_status_ = IOStatus::READY;
                 DoWrite();
               });
 }

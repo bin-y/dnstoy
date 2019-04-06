@@ -31,14 +31,13 @@ class TlsResolver {
   MessageReader message_reader_;
   std::chrono::seconds idle_timeout_ = std::chrono::seconds(10);
   boost::asio::steady_timer timeout_timer_;
-  enum class Status {
-    CLOSED,
-    CONNECTING,
-    CONNECTED,
-    HANDSHAKING,
+  enum class IOStatus {
+    NOT_INITIALIZED,
+    INITIALIZATION_FAILED,
+    INITIALIZING,
     READY,
     WRITING,
-  } status_ = Status::CLOSED;
+  } io_status_ = IOStatus::NOT_INITIALIZED;
 
   template <typename DurationType>
   void UpdateSocketTimeout(DurationType duration);
