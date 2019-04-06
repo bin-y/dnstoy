@@ -50,6 +50,7 @@ class Context : public std::enable_shared_from_this<Context> {
       socket_;
   MessageReader message_reader_;
   std::queue<QueryContext::pointer> reply_queue_;
+  bool writing_ = false;
 
   Context() {}
   void ReplyFailure(QueryContext::pointer&& query);

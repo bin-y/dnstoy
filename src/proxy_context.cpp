@@ -143,15 +143,17 @@ void Context::QueueReply(QueryContext::pointer&& query) {
   }
 
   reply_queue_.emplace(std::move(query));
-  if (reply_queue_.size() == 1) {
-    DoWrite();
-  }
+  DoWrite();
 }
 
 void Context::DoWrite() {
+  if (writing_) {
+    return;
+  }
   if (reply_queue_.empty()) {
     return;
   }
+  writing_ = true;
   auto query = std::move(reply_queue_.front());
   reply_queue_.pop();
 
@@ -164,6 +166,7 @@ void Context::DoWrite() {
     if (error) {
       LOG_ERROR(<< error.message());
     }
+    writing_ = false;
     DoWrite();
   };
 
