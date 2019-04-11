@@ -190,6 +190,12 @@ void TlsResolver::DoWrite() {
     return;
   }
   while (sent_queries_.find(id) != sent_queries_.end()) {
+    if (query.use_count() == 1) {
+      // timed out
+      query.reset();
+      record.second(std::move(record.first), boost::asio::error::timed_out);
+      return;
+    }
     Engine::get().GetExecutor().run_one();
   }
   sent_queries_[id] = record;
