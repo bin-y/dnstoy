@@ -18,7 +18,8 @@ class TlsResolver {
  public:
   using tcp_endpoints_type = std::vector<boost::asio::ip::tcp::endpoint>;
   TlsResolver(const std::string& hostname, const tcp_endpoints_type& endpoints);
-  void Resolve(QueryContext::weak_pointer&& query);
+  void Resolve(QueryContext::weak_pointer&& query,
+               QueryResultHandler&& handler);
 
  private:
   using stream_type = boost::asio::ssl::stream<boost::asio::ip::tcp::socket>;
@@ -27,7 +28,7 @@ class TlsResolver {
   QueryManager query_manager_;
   std::string hostname_;
   tcp_endpoints_type endpoints_;
-  std::unordered_map<int16_t, QueryContext::weak_pointer> sent_queries_;
+  std::unordered_map<int16_t, QueryManager::QueryRecord> sent_queries_;
   MessageReader message_reader_;
   std::chrono::seconds idle_timeout_ = std::chrono::seconds(10);
   boost::asio::steady_timer timeout_timer_;

@@ -1,6 +1,7 @@
 #ifndef DNSTOY_RESOLVER_H_
 #define DNSTOY_RESOLVER_H_
 
+#include <deque>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -14,7 +15,8 @@ class TlsResolver;
 class Resolver {
  public:
   static int init();
-  static void Resolve(QueryContext::weak_pointer query);
+  static void Resolve(QueryContext::weak_pointer query,
+                      QueryResultHandler&& handler);
 
  private:
   struct ServerConfiguration {

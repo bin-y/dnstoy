@@ -98,24 +98,29 @@ void Context::HandleUserMessage(
   tcp_message->message_length = endian::native_to_big(message_length);
   memcpy(tcp_message->message, data + message_offset, message_length);
 
-  query->handler = std::bind(&Context::HandleResolvedQuery, shared_from_this(),
-                             std::placeholders::_1);
   query->LockPointerFor(query_timeout_);
-  Resolver::Resolve(query);
+  Resolver::Resolve(query,
+                    std::bind(&Context::HandleQueryResult, shared_from_this(),
+                              std::placeholders::_1, std::placeholders::_2));
 }
 
-void Context::HandleResolvedQuery(QueryContext::pointer&& query) {
+void Context::HandleQueryResult(QueryContext::weak_pointer&& context_weak_ptr,
+                                boost::system::error_code error) {
   LOG_TRACE();
-  auto& context = *query;
-  if (context.rcode != dns::RCODE::SUCCESS) {
-    ReplyFailure(std::move(query));
+  auto context = context_weak_ptr.lock();
+  if (!context) {
+    LOG_DEBUG("A query has expired");
     return;
   }
-  if (context.query.questions.size()) {
-    LOG_DEBUG("ID:" << context.query.header.id << " "
-                    << context.query.questions[0].name << " resolved");
+  if (context->rcode != dns::RCODE::SUCCESS) {
+    ReplyFailure(std::move(context));
+    return;
   }
-  QueueReply(std::move(query));
+  if (context->query.questions.size()) {
+    LOG_DEBUG("ID:" << context->query.header.id << " "
+                    << context->query.questions[0].name << " resolved");
+  }
+  QueueReply(std::move(context));
 }
 
 void Context::QueueReply(QueryContext::pointer&& query) {

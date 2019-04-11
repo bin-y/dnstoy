@@ -24,7 +24,6 @@ class QueryContext : public std::enable_shared_from_this<QueryContext> {
   std::vector<uint8_t>
       raw_message;  // query or answer in dns::RawTcpMessage format
   dns::RCODE rcode = dns::RCODE::SERVER_FAILURE;
-  std::function<void(QueryContext::pointer&&)> handler;
 
   static pointer create() { return pointer(new QueryContext()); }
 
@@ -46,7 +45,6 @@ class QueryContext : public std::enable_shared_from_this<QueryContext> {
     answer.reset();
     raw_message.clear();
     rcode = dns::RCODE::SERVER_FAILURE;
-    handler = nullptr;
   }
 
  private:
@@ -59,15 +57,20 @@ using QueryContextPool = SharedObjectPool<
     SharedObjectPoolObjectCreationMethod::
         CreateAndCreateWithDeleterFunctionReturningSharedPointer>;
 
+using QueryResultHandler = std::function<void(QueryContext::weak_pointer&&,
+                                              boost::system::error_code)>;
+
 class QueryManager {
  public:
-  void QueueQuery(QueryContext::weak_pointer&& context);
-  void CutInQuery(QueryContext::weak_pointer&& context);
+  using QueryRecord = std::pair<QueryContext::weak_pointer, QueryResultHandler>;
+  void QueueQuery(QueryContext::weak_pointer&& context,
+                  QueryResultHandler&& handler);
+  void CutInQueryRecord(QueryRecord&& record);
   size_t QueueSize();
-  bool GetQuery(QueryContext::pointer& context, int16_t& id);
+  bool GetRecord(QueryRecord& record, int16_t& id);
 
  private:
-  std::deque<QueryContext::weak_pointer> query_queue_;
+  std::deque<QueryRecord> query_queue_;
   int16_t counter_;
 };
 

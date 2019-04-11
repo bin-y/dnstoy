@@ -58,7 +58,8 @@ class Context : public std::enable_shared_from_this<Context> {
   void HandleUserMessage(MessageReader::Reason reason, const uint8_t* data,
                          uint16_t data_size,
                          const boost::asio::ip::udp::endpoint* udp_endpoint);
-  void HandleResolvedQuery(QueryContext::pointer&& query);
+  void HandleQueryResult(QueryContext::weak_pointer&& context_weak_ptr,
+                         boost::system::error_code error);
   void QueueReply(QueryContext::pointer&& query);
   void DoWrite();
 };

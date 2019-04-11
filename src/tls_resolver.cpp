@@ -31,8 +31,9 @@ TlsResolver::TlsResolver(const std::string& hostname,
                            ssl::context::no_tlsv1 | ssl::context::no_tlsv1_1);
 }
 
-void TlsResolver::Resolve(QueryContext::weak_pointer&& query) {
-  query_manager_.QueueQuery(std::move(query));
+void TlsResolver::Resolve(QueryContext::weak_pointer&& query,
+                          QueryResultHandler&& handler) {
+  query_manager_.QueueQuery(std::move(query), std::move(handler));
   if (io_status_ == IOStatus::NOT_INITIALIZED) {
     ResetConnection();
   } else {
@@ -78,9 +79,11 @@ void TlsResolver::ResetConnection() {
   {
     auto i = sent_queries_.begin();
     while (i != sent_queries_.end()) {
-      auto& query = i->second;
-      if (!query.expired()) {
-        query_manager_.CutInQuery(std::move(query));
+      auto& record = i->second;
+      if (!record.first.expired()) {
+        query_manager_.CutInQueryRecord(std::move(record));
+      } else {
+        record.second(std::move(record.first), boost::asio::error::timed_out);
       }
       i = sent_queries_.erase(i);
     }
@@ -162,14 +165,15 @@ void TlsResolver::DoWrite() {
   }
   UpdateSocketTimeout(idle_timeout_);
 
-  QueryContext::pointer query;
+  QueryManager::QueryRecord record;
   int16_t id;
-  if (!query_manager_.GetQuery(query, id)) {
+  if (!query_manager_.GetRecord(record, id)) {
     LOG_TRACE("Queue clear.");
     return;
   }
   io_status_ = IOStatus::WRITING;
   using ResultType = dns::MessageEncoder::ResultType;
+  auto query = record.first.lock();
   assert(query);
   auto& context = *query.get();
 
@@ -188,23 +192,15 @@ void TlsResolver::DoWrite() {
   while (sent_queries_.find(id) != sent_queries_.end()) {
     Engine::get().GetExecutor().run_one();
   }
-  sent_queries_[id] = query;
+  sent_queries_[id] = record;
   async_write(*socket_, boost::asio::buffer(context.raw_message),
-              [this, query, id](const boost::system::error_code& error,
-                                std::size_t bytes_transfered) mutable {
+              [this, query](const boost::system::error_code& error,
+                            std::size_t bytes_transfered) mutable {
                 if (error) {
                   if (error == boost::asio::error::operation_aborted) {
                     return;
                   }
                   LOG_ERROR("Write failed " << error.message());
-                  auto handle = sent_queries_.extract(id);
-                  if (handle.empty()) {
-                    LOG_ERROR("emmm...");
-                  }
-                  if (query.use_count() == 1) {  // expired
-                    query->rcode = dns::RCODE::SERVER_FAILURE;
-                    query->handler(std::move(query));
-                  }
                   ResetConnection();
                   return;
                 }
@@ -251,9 +247,9 @@ void TlsResolver::HandleServerMessage(MessageReader::Reason reason,
               << " answer find no record");
     return;
   }
-  auto& query_weak_pointer = query_handle.mapped();
-  auto query = query_weak_pointer.lock();
-  if (!query) {
+  auto& record = query_handle.mapped();
+  auto context = record.first.lock();
+  if (!context) {
     LOG_INFO("?|"
 #ifdef NDEBUG
              << id
@@ -261,16 +257,17 @@ void TlsResolver::HandleServerMessage(MessageReader::Reason reason,
              << message
 #endif
              << " answer timed out");
+    record.second(std::move(context), boost::asio::error::timed_out);
     return;
   }
-  auto& context = *query;
-  context.rcode = dns::RCODE::SUCCESS;
-  context.raw_message.assign(data, data + data_size);
+  context->rcode = dns::RCODE::SUCCESS;
+  context->raw_message.assign(data, data + data_size);
   dns::MessageEncoder::RewriteIDToTcpMessage(
-      context.raw_message.data(), data_size, context.query.header.id);
+      context->raw_message.data(), data_size, context->query.header.id);
 
-  LOG_TRACE(<< context.query.header.id << "|" << message << " answered");
-  context.handler(std::move(query));
+  LOG_TRACE(<< context->query.header.id << "|" << message << " answered");
+  record.second(std::move(record.first), boost::system::errc::make_error_code(
+                                             boost::system::errc::success));
 }
 
 }  // namespace dnstoy

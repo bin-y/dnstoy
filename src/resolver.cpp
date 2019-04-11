@@ -19,7 +19,8 @@ std::vector<Resolver::ServerConfiguration> Resolver::server_configurations_;
 thread_local std::vector<Resolver::ServerInstanceStore>
     Resolver::server_instances_;
 
-void Resolver::Resolve(QueryContext::weak_pointer query) {
+void Resolver::Resolve(QueryContext::weak_pointer query,
+                       QueryResultHandler&& handler) {
   // TODO: select server & resolver by rule
   auto& server = server_instances_[0];
   auto& tls_resolver = server.tls_resolver;
@@ -28,7 +29,7 @@ void Resolver::Resolve(QueryContext::weak_pointer query) {
         std::make_unique<TlsResolver>(server_configurations_[0].hostname,
                                       server_configurations_[0].tls_endpoints);
   }
-  tls_resolver->Resolve(std::move(query));
+  tls_resolver->Resolve(std::move(query), std::move(handler));
 }
 
 int Resolver::init() {
