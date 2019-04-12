@@ -50,10 +50,10 @@ MessageEncoder::ResultType MessageEncoder::Encode(const Message& message,
 
   {
     // encode header
-    context.buffer.resize(context.buffer.size() + sizeof(RawHeader), 0);
+    context.buffer.resize(context.offset + sizeof(RawHeader), 0);
     auto& source = message.header;
-    buffer.resize(sizeof(RawHeader));
-    auto destination = reinterpret_cast<RawHeader*>(buffer.data());
+    auto destination =
+        reinterpret_cast<RawHeader*>(buffer.data() + context.offset);
     destination->ID = endian::native_to_big(source.id);
     WRITE_FLAG(destination->FLAGS, QR, source.is_response ? 1 : 0);
     WRITE_FLAG(destination->FLAGS, Opcode, source.operation_code);
@@ -78,7 +78,7 @@ MessageEncoder::ResultType MessageEncoder::Encode(const Message& message,
     auto field_size = sizeof(RawQuestion) - sizeof(RawQuestion::QNAME);
     context.buffer.resize(context.offset + field_size);
     auto raw_question = reinterpret_cast<RawQuestion*>(
-        buffer.data() + offset - sizeof(RawQuestion::QNAME));
+        buffer.data() + context.offset - sizeof(RawQuestion::QNAME));
     raw_question->QTYPE = endian::native_to_big(question.type);
     raw_question->QCLASS = endian::native_to_big(question.the_class);
     context.offset += field_size;
