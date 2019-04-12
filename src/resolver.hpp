@@ -1,10 +1,11 @@
 #ifndef DNSTOY_RESOLVER_H_
 #define DNSTOY_RESOLVER_H_
 
-#include <deque>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include "performance_record.hpp"
 #include "query.hpp"
 #include "tls_resolver.hpp"
 
@@ -29,10 +30,24 @@ class Resolver {
 
   struct ServerInstanceStore {
     std::unique_ptr<TlsResolver> tls_resolver;
+    PerformanceRecord performance_record;
+  };
+
+  struct ComparePerformanceRank {
+    bool operator()(size_t a, size_t b) const {
+      if (server_instances_[a].performance_record.estimated_delay() !=
+          server_instances_[b].performance_record.estimated_delay()) {
+        return server_instances_[a].performance_record.estimated_delay() <
+               server_instances_[b].performance_record.estimated_delay();
+      }
+      return a < b;
+    }
   };
 
   static std::vector<ServerConfiguration> server_configurations_;
   static thread_local std::vector<ServerInstanceStore> server_instances_;
+  static thread_local std::set<size_t, ComparePerformanceRank>
+      server_speed_ranking_;
 };
 
 }  // namespace dnstoy

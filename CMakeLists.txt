@@ -24,6 +24,7 @@ include_directories("${PROJECT_BINARY_DIR}")
 # add the executable
 add_executable(dnstoy 
   src/main.cpp src/configuration.cpp src/engine.cpp src/server.cpp src/logging.cpp
+  src/performance_record.cpp
   src/proxy_context.cpp
   src/query.cpp src/resolver.cpp src/tls_resolver.cpp
   src/dns_message_decoder.cpp src/dns_message_encoder.cpp

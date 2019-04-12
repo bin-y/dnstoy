@@ -256,7 +256,7 @@ void TlsResolver::HandleServerMessage(MessageReader::Reason reason,
   auto& record = query_handle.mapped();
   auto context = record.first.lock();
   if (!context) {
-    LOG_INFO("?|"
+    LOG_INFO(<< hostname_ << " ?|"
 #ifdef NDEBUG
              << id
 #else

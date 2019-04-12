@@ -1,4 +1,5 @@
 #include "resolver.hpp"
+#include <chrono>
 #include <regex>
 #include <string>
 #include "configuration.hpp"
@@ -12,24 +13,62 @@ using boost::asio::ip::tcp;
 using regex_token_iterator = std::regex_token_iterator<std::string::iterator>;
 using std::string;
 using std::string_view;
+using std::chrono::duration_cast;
+using std::chrono::milliseconds;
+using std::chrono::steady_clock;
 
 namespace dnstoy {
 
 std::vector<Resolver::ServerConfiguration> Resolver::server_configurations_;
 thread_local std::vector<Resolver::ServerInstanceStore>
     Resolver::server_instances_;
+thread_local std::set<size_t, Resolver::ComparePerformanceRank>
+    Resolver::server_speed_ranking_;
 
 void Resolver::Resolve(QueryContext::weak_pointer query,
                        QueryResultHandler&& handler) {
   // TODO: select server & resolver by rule
-  auto& server = server_instances_[0];
+  if (server_instances_.empty()) {
+    server_instances_.resize(server_configurations_.size());
+    for (auto i = 0; i < server_instances_.size(); i++) {
+      server_speed_ranking_.insert(i);
+    }
+  }
+
+  auto index = *server_speed_ranking_.begin();
+  auto& server = server_instances_[index];
+  {
+    // update server load and rank
+    auto handle = server_speed_ranking_.extract(server_speed_ranking_.begin());
+    server.performance_record.increase_load();
+    server_speed_ranking_.insert(std::move(handle));
+  }
   auto& tls_resolver = server.tls_resolver;
   if (!tls_resolver) {
-    tls_resolver =
-        std::make_unique<TlsResolver>(server_configurations_[0].hostname,
-                                      server_configurations_[0].tls_endpoints);
+    tls_resolver = std::make_unique<TlsResolver>(
+        server_configurations_[index].hostname,
+        server_configurations_[index].tls_endpoints);
   }
-  tls_resolver->Resolve(std::move(query), std::move(handler));
+
+  auto new_handler = [index, begin_time = steady_clock::now(),
+                      handler = std::move(handler)](
+                         QueryContext::weak_pointer&& context,
+                         boost::system::error_code error) {
+    auto time_cost =
+        duration_cast<milliseconds>(steady_clock::now() - begin_time);
+    if (error && !context.expired()) {
+      // TODO: figure out a better factor
+      time_cost *= 1.5;
+    }
+    // TODO: consider server may return a message with failed RCODE
+    handler(std::move(context), error);
+    auto handle = server_speed_ranking_.extract(index);
+    // TODO: take handshake into consideration
+    server_instances_[index].performance_record.record_and_decrease_load(
+        time_cost);
+    server_speed_ranking_.insert(std::move(handle));
+  };
+  tls_resolver->Resolve(std::move(query), std::move(new_handler));
 }
 
 int Resolver::init() {
@@ -141,7 +180,6 @@ int Resolver::init() {
     LOG_ERROR("no available remote server found");
     return -1;
   }
-  server_instances_.resize(server_configurations_.size());
   return 0;
 }
 
