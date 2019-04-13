@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.1.0)
 project (dnstoy)
 
-set(BOOST_ROOT "./libs/boost-1.69.0-install")
+set(BOOST_ROOT "./libs/boost-1.70.0-install")
 set(Boost_USE_STATIC_LIBS ON)
 find_package( Boost 1.69 COMPONENTS program_options system log REQUIRED )
 include_directories (SYSTEM ${Boost_INCLUDE_DIR})
