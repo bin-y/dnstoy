@@ -31,9 +31,9 @@ TlsResolver::TlsResolver(const std::string& hostname,
                            ssl::context::no_tlsv1 | ssl::context::no_tlsv1_1);
 }
 
-void TlsResolver::Resolve(QueryContext::weak_pointer&& query,
-                          QueryResultHandler&& handler) {
-  query_manager_.QueueQuery(std::move(query), std::move(handler));
+void TlsResolver::Resolve(QueryContext::pointer& query,
+                          QueryResultHandler& handler) {
+  query_manager_.QueueQuery(query, handler);
   if (io_status_ == IOStatus::NOT_INITIALIZED) {
     ResetConnection();
   } else {
@@ -46,14 +46,18 @@ void TlsResolver::UpdateSocketTimeout(DurationType duration) {
   timeout_timer_.expires_after(duration);
   timeout_timer_.async_wait([this](boost::system::error_code error) {
     if (!error) {
-      LOG_DEBUG("socket timed out");
-      CloseConnection();
+      LOG_DEBUG(<< hostname_ << " socket timed out");
+      if (sent_queries_.empty()) {
+        CloseConnection();
+      } else {
+        ResetConnection();
+      }
     }
   });
 }
 
 void TlsResolver::CloseConnection() {
-  LOG_TRACE();
+  LOG_TRACE(<< hostname_);
   message_reader_.Stop();
   if (!socket_ || !socket_->lowest_layer().is_open()) {
     return;
@@ -74,16 +78,16 @@ void TlsResolver::ResetConnection() {
   message_reader_.reset();
   socket_ =
       std::make_unique<stream_type>(Engine::get().GetExecutor(), ssl_context_);
-  LOG_INFO("connect to " << hostname_);
+  LOG_INFO(<< hostname_);
 
   {
     auto i = sent_queries_.begin();
     while (i != sent_queries_.end()) {
       auto& record = i->second;
-      if (!record.first.expired()) {
+      if (record.first->status == QueryContext::Status::WAITING_FOR_ANSWER) {
         query_manager_.CutInQueryRecord(std::move(record));
       } else {
-        record.second(std::move(record.first), boost::asio::error::timed_out);
+        DropQuery(record);
       }
       i = sent_queries_.erase(i);
     }
@@ -107,7 +111,7 @@ void TlsResolver::ResetConnection() {
         char subject_name[256];
         X509* cert = X509_STORE_CTX_get_current_cert(ctx.native_handle());
         X509_NAME_oneline(X509_get_subject_name(cert), subject_name, 256);
-        LOG_INFO("Verifying " << hostname_ << " :" << subject_name);
+        LOG_INFO(" verifying " << hostname_ << " :" << subject_name);
         return preverified;
       });
 
@@ -116,7 +120,7 @@ void TlsResolver::ResetConnection() {
   auto handler = [this](const boost::system::error_code& error,
                         const tcp::endpoint& /*endpoint*/) {
     if (error) {
-      LOG_ERROR("Connect failed: " << error.message());
+      LOG_ERROR(<< hostname_ << " connect failed: " << error.message());
       io_status_ = IOStatus::INITIALIZATION_FAILED;
       ResetConnection();
       return;
@@ -134,13 +138,13 @@ void TlsResolver::Handshake() {
       boost::asio::ssl::stream_base::client,
       [this](const boost::system::error_code& error) {
         if (error) {
-          LOG_ERROR("Handshake failed: " << error.message());
+          LOG_ERROR(<< hostname_ << " handshake failed: " << error.message());
           io_status_ = IOStatus::INITIALIZATION_FAILED;
           ResetConnection();
           return;
         }
         io_status_ = IOStatus::READY;
-        LOG_TRACE("Handshake success");
+        LOG_TRACE(<< hostname_ << " handshake success");
         UpdateSocketTimeout(idle_timeout_);
         if (query_manager_.QueueSize()) {
           LOG_TRACE("do write");
@@ -155,11 +159,11 @@ void TlsResolver::Handshake() {
 
 void TlsResolver::DoWrite() {
   if (io_status_ == IOStatus::WRITING) {
-    LOG_TRACE("already writing");
+    LOG_TRACE(<< hostname_ << " already writing");
     return;
   }
   if (io_status_ != IOStatus::READY) {
-    LOG_TRACE("IO not ready");
+    LOG_TRACE(<< hostname_ << " IO not ready");
     ResetConnection();
     return;
   }
@@ -167,62 +171,71 @@ void TlsResolver::DoWrite() {
 
   QueryManager::QueryRecord record;
   int16_t id;
-  if (!query_manager_.GetRecord(record, id)) {
-    LOG_TRACE("Queue clear.");
+
+  bool got_record = false;
+  while (query_manager_.GetRecord(record, id)) {
+    if (record.first->status != QueryContext::Status::WAITING_FOR_ANSWER) {
+      DropQuery(record);
+      continue;
+    }
+    got_record = true;
+    break;
+  }
+  if (!got_record) {
+    LOG_TRACE(<< hostname_ << " queue clear.");
     return;
   }
   io_status_ = IOStatus::WRITING;
   using ResultType = dns::MessageEncoder::ResultType;
-  auto query = record.first.lock();
-  assert(query);
-  auto& context = *query.get();
+  auto& context = *record.first;
 
-  LOG_TRACE("Query " << (context.query.questions.size()
-                             ? context.query.questions[0].name
-                             : "")
-                     << context.query << "|" << id << " start write");
+  LOG_TRACE(<< hostname_ << " query "
+            << (context.query.questions.size() ? context.query.questions[0].name
+                                               : "")
+            << context.query << "|" << id << " start write");
 
   auto encode_result = dns::MessageEncoder::RewriteIDToTcpMessage(
       context.raw_message.data(), context.raw_message.size(), id);
   if (encode_result != ResultType::good) {
-    LOG_TRACE("Query" << context.query.header.id << "|" << id
-                      << "encode failed");
+    LOG_TRACE(<< hostname_ << " query" << context.query.header.id << "|" << id
+              << "encode failed");
+    DropQuery(record);
     return;
   }
   while (sent_queries_.find(id) != sent_queries_.end()) {
-    if (query.use_count() == 1) {
-      // timed out
-      query.reset();
-      record.second(std::move(record.first), boost::asio::error::timed_out);
+    if (context.status != QueryContext::Status::WAITING_FOR_ANSWER) {
+      DropQuery(record);
       return;
     }
     Engine::get().GetExecutor().run_one();
   }
   sent_queries_[id] = record;
-  async_write(*socket_, boost::asio::buffer(context.raw_message),
-              [this, query](const boost::system::error_code& error,
-                            std::size_t bytes_transfered) mutable {
-                if (error) {
-                  if (error == boost::asio::error::operation_aborted) {
-                    return;
-                  }
-                  LOG_ERROR("Write failed " << error.message());
-                  ResetConnection();
-                  return;
-                }
-                io_status_ = IOStatus::READY;
-                DoWrite();
-              });
+  async_write(
+      *socket_, boost::asio::buffer(context.raw_message),
+      [this, hold_buffer = record.first](const boost::system::error_code& error,
+                                         std::size_t bytes_transfered) mutable {
+        if (error) {
+          if (error == boost::asio::error::operation_aborted) {
+            ResetConnection();
+            return;
+          }
+          LOG_ERROR(<< hostname_ << " write failed " << error.message());
+          ResetConnection();
+          return;
+        }
+        io_status_ = IOStatus::READY;
+        DoWrite();
+      });
 }
 
 void TlsResolver::HandleServerMessage(MessageReader::Reason reason,
                                       const uint8_t* data, uint16_t data_size) {
   if (reason != MessageReader::Reason::NEW_MESSAGE) {
-    LOG_TRACE("ignore reason:" << static_cast<int>(reason));
+    LOG_TRACE(<< hostname_ << " ignore reason:" << static_cast<int>(reason));
     return;
   }
   if (!data || !data_size) {
-    LOG_ERROR("empty message!");
+    LOG_ERROR(<< hostname_ << " empty message!");
     return;
   }
   UpdateSocketTimeout(idle_timeout_);
@@ -231,7 +244,7 @@ void TlsResolver::HandleServerMessage(MessageReader::Reason reason,
   auto decode_result =
       dns::MessageDecoder::ReadIDFromTcpMessage(data, data_size, id);
   if (decode_result != ResultType::good) {
-    LOG_ERROR("?|? answer decode failed");
+    LOG_ERROR(<< hostname_ << " ?|? answer decode failed");
     return;
   }
   auto query_handle = sent_queries_.extract(id);
@@ -244,7 +257,7 @@ void TlsResolver::HandleServerMessage(MessageReader::Reason reason,
 #endif
 
   if (!query_handle) {
-    LOG_ERROR("?|"
+    LOG_ERROR(<< hostname_ << " ?|"
 #ifdef NDEBUG
               << id
 #else
@@ -254,19 +267,12 @@ void TlsResolver::HandleServerMessage(MessageReader::Reason reason,
     return;
   }
   auto& record = query_handle.mapped();
-  auto context = record.first.lock();
-  if (!context) {
-    LOG_INFO(<< hostname_ << " ?|"
-#ifdef NDEBUG
-             << id
-#else
-             << message
-#endif
-             << " answer timed out");
-    record.second(std::move(context), boost::asio::error::timed_out);
+  auto& context = record.first;
+  if (context->status != QueryContext::Status::WAITING_FOR_ANSWER) {
+    DropQuery(record);
     return;
   }
-  context->rcode = dns::RCODE::SUCCESS;
+  context->status = QueryContext::Status::ANSWER_WRITTERN_TO_BUFFER;
   context->raw_message.assign(data, data + data_size);
   dns::MessageEncoder::RewriteIDToTcpMessage(
       context->raw_message.data(), data_size, context->query.header.id);
@@ -274,6 +280,32 @@ void TlsResolver::HandleServerMessage(MessageReader::Reason reason,
   LOG_TRACE(<< context->query.header.id << "|" << message << " answered");
   record.second(std::move(record.first), boost::system::errc::make_error_code(
                                              boost::system::errc::success));
+}
+
+void TlsResolver::DropQuery(QueryManager::QueryRecord& record) {
+  error_code error;
+  switch (record.first->status) {
+    case QueryContext::Status::EXPIRED:
+      LOG_INFO(<< hostname_ << " " << record.first->query.header.id
+               << "timed out");
+      error = boost::asio::error::timed_out;
+      break;
+    case QueryContext::Status::ANSWER_WRITTERN_TO_BUFFER:
+      // Got error during resolving
+    case QueryContext::Status::ANSWER_ACCEPTED:
+      // Already resolved by another resolver
+      error = boost::system::errc::make_error_code(
+          boost::system::errc::operation_canceled);
+      break;
+    case QueryContext::Status::WAITING_FOR_ANSWER:
+      error = boost::system::errc::make_error_code(
+          boost::system::errc::bad_message);
+    default:
+      LOG_ERROR();
+      assert(false);
+  }
+  record.second(std::move(record.first), error);
+  return;
 }
 
 }  // namespace dnstoy

@@ -15,7 +15,6 @@ namespace dnstoy {
 class QueryContext : public std::enable_shared_from_this<QueryContext> {
  public:
   using pointer = std::shared_ptr<QueryContext>;
-  using weak_pointer = std::weak_ptr<QueryContext>;
   using TcpEndpoint = boost::asio::ip::tcp::endpoint;
   using UdpEndpoint = boost::asio::ip::udp::endpoint;
   std::variant<TcpEndpoint, UdpEndpoint> endpoint;
@@ -23,7 +22,14 @@ class QueryContext : public std::enable_shared_from_this<QueryContext> {
   dns::Message answer;
   std::vector<uint8_t>
       raw_message;  // query or answer in dns::RawTcpMessage format
-  dns::RCODE rcode = dns::RCODE::SERVER_FAILURE;
+  size_t pending_resolve_attempt = 0;
+
+  enum class Status {
+    WAITING_FOR_ANSWER,
+    ANSWER_WRITTERN_TO_BUFFER,
+    ANSWER_ACCEPTED,
+    EXPIRED
+  } status = Status::WAITING_FOR_ANSWER;
 
   static pointer create() { return pointer(new QueryContext()); }
 
@@ -33,18 +39,27 @@ class QueryContext : public std::enable_shared_from_this<QueryContext> {
   }
 
   template <typename DurationType>
-  void LockPointerFor(DurationType duration) {
+  void ExpiresAfter(DurationType duration) {
     TcpEndpoint a;
     timer_.expires_after(duration);
-    timer_.async_wait([_ = shared_from_this()](boost::system::error_code) {});
+    timer_.async_wait(
+        [self = shared_from_this()](boost::system::error_code error) {
+          if (!error) {
+            if (self->status == Status::WAITING_FOR_ANSWER) {
+              self->status = Status::EXPIRED;
+            }
+          }
+        });
   }
+
+  void CancelExpireTimer() { timer_.cancel(); }
 
   void on_recycled_by_object_pool() {
     // endpoint = TcpEndpoint{};
     query.reset();
     answer.reset();
     raw_message.clear();
-    rcode = dns::RCODE::SERVER_FAILURE;
+    status = Status::WAITING_FOR_ANSWER;
   }
 
  private:
@@ -53,18 +68,17 @@ class QueryContext : public std::enable_shared_from_this<QueryContext> {
 };
 
 using QueryContextPool = SharedObjectPool<
-    QueryContext, 32,
+    QueryContext, 64,
     SharedObjectPoolObjectCreationMethod::
         CreateAndCreateWithDeleterFunctionReturningSharedPointer>;
 
-using QueryResultHandler = std::function<void(QueryContext::weak_pointer&&,
-                                              boost::system::error_code)>;
+using QueryResultHandler =
+    std::function<void(QueryContext::pointer&&, boost::system::error_code)>;
 
 class QueryManager {
  public:
-  using QueryRecord = std::pair<QueryContext::weak_pointer, QueryResultHandler>;
-  void QueueQuery(QueryContext::weak_pointer&& context,
-                  QueryResultHandler&& handler);
+  using QueryRecord = std::pair<QueryContext::pointer, QueryResultHandler>;
+  void QueueQuery(QueryContext::pointer& context, QueryResultHandler& handler);
   void CutInQueryRecord(QueryRecord&& record);
   size_t QueueSize();
   bool GetRecord(QueryRecord& record, int16_t& id);

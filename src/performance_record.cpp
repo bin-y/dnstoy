@@ -14,11 +14,8 @@ void PerformanceRecord::record_and_decrease_load(
   time_cost_sum_ += cost;
   time_cost_record_[record_front_] = cost;
 
-  if (record_front_ == sample_count_ - 1) {
-    record_front_ = 0;
-  } else {
-    record_front_++;
-  }
+  record_front_++;
+  record_front_ %= sample_count_;
   if (sampled_count_ < sample_count_) {
     sampled_count_++;
   }
@@ -34,8 +31,8 @@ void PerformanceRecord::increase_load() {
 
 inline void PerformanceRecord::estimate_delay() {
   // TODO: dynamically determin '2' by record
-  if (load_ > 2) {
-    estimated_delay_ = average_time_cost_.count() * (load_ + 1) / 2;
+  if (load_ > 4) {
+    estimated_delay_ = average_time_cost_.count() * (load_ + 1) / 4;
   } else {
     estimated_delay_ = average_time_cost_.count();
   }

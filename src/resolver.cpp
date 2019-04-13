@@ -24,8 +24,9 @@ thread_local std::vector<Resolver::ServerInstanceStore>
     Resolver::server_instances_;
 thread_local std::set<size_t, Resolver::ComparePerformanceRank>
     Resolver::server_speed_ranking_;
+thread_local size_t Resolver::round_robin_for_idle = 0;
 
-void Resolver::Resolve(QueryContext::weak_pointer query,
+void Resolver::Resolve(QueryContext::pointer&& query,
                        QueryResultHandler&& handler) {
   // TODO: select server & resolver by rule
   if (server_instances_.empty()) {
@@ -35,8 +36,33 @@ void Resolver::Resolve(QueryContext::weak_pointer query,
     }
   }
 
-  auto index = *server_speed_ranking_.begin();
-  auto& server = server_instances_[index];
+  auto fast_server_index = *server_speed_ranking_.begin();
+  ResolveQueryWithServer(fast_server_index, query, handler);
+  if (server_instances_.size() < 2) {
+    return;
+  }
+  // round robin for idle gives an oppotunity to low ranking server to prove
+  // it's performance when idle, some public server may performances bad when
+  // busy but performances good when idle
+  round_robin_for_idle++;
+  round_robin_for_idle %= server_instances_.size();
+  if (round_robin_for_idle == fast_server_index) {
+    round_robin_for_idle++;
+    round_robin_for_idle %= server_instances_.size();
+  }
+  auto idle_server_index = round_robin_for_idle;
+  if (server_instances_[idle_server_index].performance_record.load() > 3) {
+    // not idle
+    return;
+  }
+  ResolveQueryWithServer(idle_server_index, query, handler);
+}
+
+void Resolver::ResolveQueryWithServer(size_t server_index,
+                                      QueryContext::pointer& query,
+                                      QueryResultHandler& handler) {
+  query->pending_resolve_attempt++;
+  auto& server = server_instances_[server_index];
   {
     // update server load and rank
     auto handle = server_speed_ranking_.extract(server_speed_ranking_.begin());
@@ -46,29 +72,36 @@ void Resolver::Resolve(QueryContext::weak_pointer query,
   auto& tls_resolver = server.tls_resolver;
   if (!tls_resolver) {
     tls_resolver = std::make_unique<TlsResolver>(
-        server_configurations_[index].hostname,
-        server_configurations_[index].tls_endpoints);
+        server_configurations_[server_index].hostname,
+        server_configurations_[server_index].tls_endpoints);
   }
 
-  auto new_handler = [index, begin_time = steady_clock::now(),
-                      handler = std::move(handler)](
-                         QueryContext::weak_pointer&& context,
-                         boost::system::error_code error) {
+  QueryResultHandler new_handler = [server_index, handler,
+                                    begin_time = steady_clock::now()](
+                                       QueryContext::pointer&& context,
+                                       boost::system::error_code error) {
+    context->pending_resolve_attempt--;
+    auto context_status = context->status;
+    // TODO: consider server may return a message with failed RCODE
+    if (context_status == QueryContext::Status::ANSWER_WRITTERN_TO_BUFFER ||
+        (context->pending_resolve_attempt == 0 &&
+         context_status != QueryContext::Status::ANSWER_ACCEPTED)) {
+      handler(std::move(context), error);
+    }
     auto time_cost =
         duration_cast<milliseconds>(steady_clock::now() - begin_time);
-    if (error && !context.expired()) {
+
+    if (error && context_status != QueryContext::Status::EXPIRED) {
       // TODO: figure out a better factor
       time_cost *= 1.5;
     }
-    // TODO: consider server may return a message with failed RCODE
-    handler(std::move(context), error);
-    auto handle = server_speed_ranking_.extract(index);
+    auto handle = server_speed_ranking_.extract(server_index);
     // TODO: take handshake into consideration
-    server_instances_[index].performance_record.record_and_decrease_load(
+    server_instances_[server_index].performance_record.record_and_decrease_load(
         time_cost);
     server_speed_ranking_.insert(std::move(handle));
   };
-  tls_resolver->Resolve(std::move(query), std::move(new_handler));
+  tls_resolver->Resolve(query, new_handler);
 }
 
 int Resolver::init() {

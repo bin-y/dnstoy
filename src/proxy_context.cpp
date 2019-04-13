@@ -31,7 +31,7 @@ void Context::Stop() {
 
 void Context::ReplyFailure(QueryContext::pointer&& query) {
   auto id = query->query.header.id;
-  auto rcode = query->rcode;
+  auto rcode = dns::RCODE::SERVER_FAILURE;
   LOG_DEBUG("ID:" << id << " failed, RCODE:" << static_cast<int16_t>(rcode));
   using ResultType = dns::MessageEncoder::ResultType;
   auto& buffer = query->raw_message;
@@ -98,21 +98,20 @@ void Context::HandleUserMessage(
   tcp_message->message_length = endian::native_to_big(message_length);
   memcpy(tcp_message->message, data + message_offset, message_length);
 
-  query->LockPointerFor(query_timeout_);
-  Resolver::Resolve(query,
+  query->ExpiresAfter(query_timeout_);
+  Resolver::Resolve(std::move(query),
                     std::bind(&Context::HandleQueryResult, shared_from_this(),
                               std::placeholders::_1, std::placeholders::_2));
 }
 
-void Context::HandleQueryResult(QueryContext::weak_pointer&& context_weak_ptr,
+void Context::HandleQueryResult(QueryContext::pointer&& context,
                                 boost::system::error_code error) {
   LOG_TRACE();
-  auto context = context_weak_ptr.lock();
-  if (!context) {
+  if (context->status == QueryContext::Status::EXPIRED) {
     LOG_DEBUG("A query has expired");
     return;
   }
-  if (context->rcode != dns::RCODE::SUCCESS) {
+  if (context->status != QueryContext::Status::ANSWER_WRITTERN_TO_BUFFER) {
     ReplyFailure(std::move(context));
     return;
   }
@@ -141,12 +140,15 @@ void Context::QueueReply(QueryContext::pointer&& query) {
           truncated_size);
       if (encode_result != ResultType::good) {
         LOG_ERROR("Encode failure");
+        query->status = QueryContext::Status::WAITING_FOR_ANSWER;
         return;
       }
       buffer.resize(truncated_size + offsetof(dns::RawTcpMessage, message));
     }
   }
 
+  query->CancelExpireTimer();
+  query->status = QueryContext::Status::ANSWER_ACCEPTED;
   reply_queue_.emplace(std::move(query));
   DoWrite();
 }

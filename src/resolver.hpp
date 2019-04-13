@@ -16,7 +16,7 @@ class TlsResolver;
 class Resolver {
  public:
   static int init();
-  static void Resolve(QueryContext::weak_pointer query,
+  static void Resolve(QueryContext::pointer&& query,
                       QueryResultHandler&& handler);
 
  private:
@@ -48,6 +48,11 @@ class Resolver {
   static thread_local std::vector<ServerInstanceStore> server_instances_;
   static thread_local std::set<size_t, ComparePerformanceRank>
       server_speed_ranking_;
+  static thread_local size_t round_robin_for_idle;
+
+  static void ResolveQueryWithServer(size_t server_index,
+                                     QueryContext::pointer& query,
+                                     QueryResultHandler& handler);
 };
 
 }  // namespace dnstoy

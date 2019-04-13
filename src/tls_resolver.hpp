@@ -18,8 +18,7 @@ class TlsResolver {
  public:
   using tcp_endpoints_type = std::vector<boost::asio::ip::tcp::endpoint>;
   TlsResolver(const std::string& hostname, const tcp_endpoints_type& endpoints);
-  void Resolve(QueryContext::weak_pointer&& query,
-               QueryResultHandler&& handler);
+  void Resolve(QueryContext::pointer& query, QueryResultHandler& handler);
 
  private:
   using stream_type = boost::asio::ssl::stream<boost::asio::ip::tcp::socket>;
@@ -30,7 +29,7 @@ class TlsResolver {
   tcp_endpoints_type endpoints_;
   std::unordered_map<int16_t, QueryManager::QueryRecord> sent_queries_;
   MessageReader message_reader_;
-  std::chrono::seconds idle_timeout_ = std::chrono::seconds(10);
+  std::chrono::seconds idle_timeout_ = std::chrono::seconds(30);
   boost::asio::steady_timer timeout_timer_;
   enum class IOStatus {
     NOT_INITIALIZED,
@@ -48,6 +47,7 @@ class TlsResolver {
   void DoWrite();
   void HandleServerMessage(MessageReader::Reason reason, const uint8_t* data,
                            uint16_t data_size);
+  void DropQuery(QueryManager::QueryRecord& record);
 };
 
 }  // namespace dnstoy
