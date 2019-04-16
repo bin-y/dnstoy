@@ -1,4 +1,4 @@
-# dnstoy
+# dnstoy [![Language grade: C/C++](https://img.shields.io/lgtm/grade/cpp/g/bin-y/dnstoy.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/bin-y/dnstoy/context:cpp) [![Codacy Badge](https://api.codacy.com/project/badge/Grade/6a0ac951eb384297b29ca2c4be1059a8)](https://www.codacy.com/app/bin-y/dnstoy?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=bin-y/dnstoy&amp;utm_campaign=Badge_Grade)
 a lightweight dns-over-tls proxy (WIP)
 
 ## Project status

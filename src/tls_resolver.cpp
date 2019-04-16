@@ -104,10 +104,10 @@ void TlsResolver::ResetConnection() {
     X509_VERIFY_PARAM_set1_host(param, hostname_.data(), hostname_.length());
   }
 
+  // NOTE: consider add a configurable blacklist to untrust CNNIC / WoSign or
+  // left untrust configuration to OS
   socket_->set_verify_callback(
       [this](bool preverified, boost::asio::ssl::verify_context& ctx) {
-        // FIXME: this example only simply print the certificate's subject
-        // name.
         char subject_name[256];
         X509* cert = X509_STORE_CTX_get_current_cert(ctx.native_handle());
         X509_NAME_oneline(X509_get_subject_name(cert), subject_name, 256);
