@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.1.0)
 project (dnstoy)
 
-set(BOOST_ROOT "./libs/boost-1.70.0-install")
+set(BOOST_ROOT "libs/boost-1.70.0-install")
 set(Boost_USE_STATIC_LIBS ON)
-find_package( Boost 1.69 COMPONENTS program_options system log REQUIRED )
+find_package( Boost 1.70 COMPONENTS program_options system log REQUIRED )
 include_directories (SYSTEM ${Boost_INCLUDE_DIR})
 
 set(CMAKE_CXX_STANDARD 17)
@@ -19,7 +19,7 @@ math(EXPR CPACK_PACKAGE_VERSION_MAJOR ${CMAKE_MATCH_1})
 math(EXPR CPACK_PACKAGE_VERSION_MINOR ${CMAKE_MATCH_2})
 math(EXPR CPACK_PACKAGE_VERSION_PATCH ${CMAKE_MATCH_3})
  
-include_directories("${PROJECT_BINARY_DIR}")
+include_directories("${CMAKE_CURRENT_SOURCE_DIR}")
  
 # add the executable
 add_executable(dnstoy 
