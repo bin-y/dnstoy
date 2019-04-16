@@ -8,4 +8,4 @@ path_classifiers:
 extraction:
   cpp:
     after_prepare:
-      - $LGTM_WORKSPACE/install-depencies.sh
+      - $LGTM_SRC/install-depencies.sh
