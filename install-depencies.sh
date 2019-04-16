@@ -1,3 +1,5 @@
+#!/bin/bash
+mkdir -p libs
 cd libs
 apt-get install libssl-dev
 

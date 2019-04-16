@@ -147,7 +147,7 @@ int Resolver::init() {
                         << " check " << *entry);
               return -1;
             }
-            transport++;
+            ++transport;
           }
         } break;
         case 1: {

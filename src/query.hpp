@@ -17,9 +17,9 @@ class QueryContext : public std::enable_shared_from_this<QueryContext> {
   using pointer = std::shared_ptr<QueryContext>;
   using TcpEndpoint = boost::asio::ip::tcp::endpoint;
   using UdpEndpoint = boost::asio::ip::udp::endpoint;
-  std::variant<TcpEndpoint, UdpEndpoint> endpoint;
-  dns::Message query;
-  dns::Message answer;
+  std::variant<TcpEndpoint, UdpEndpoint> endpoint{};
+  dns::Message query{};
+  dns::Message answer{};
   std::vector<uint8_t>
       raw_message;  // query or answer in dns::RawTcpMessage format
   size_t pending_resolve_attempt = 0;
@@ -40,7 +40,6 @@ class QueryContext : public std::enable_shared_from_this<QueryContext> {
 
   template <typename DurationType>
   void ExpiresAfter(DurationType duration) {
-    TcpEndpoint a;
     timer_.expires_after(duration);
     timer_.async_wait(
         [self = shared_from_this()](boost::system::error_code error) {
@@ -63,8 +62,8 @@ class QueryContext : public std::enable_shared_from_this<QueryContext> {
   }
 
  private:
-  QueryContext() : timer_(Engine::get().GetExecutor()) {}
-  boost::asio::steady_timer timer_;
+  QueryContext(){};
+  boost::asio::steady_timer timer_{Engine::get().GetExecutor()};
 };
 
 using QueryContextPool = SharedObjectPool<
@@ -85,7 +84,7 @@ class QueryManager {
 
  private:
   std::deque<QueryRecord> query_queue_;
-  int16_t counter_;
+  int16_t counter_ = 0;
 };
 
 }  // namespace dnstoy

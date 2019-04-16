@@ -190,7 +190,7 @@ MessageEncoder::ResultType MessageEncoder::RewriteIDToTcpMessage(
 }
 
 inline bool EncodeName(MessageEncoderContext& context, const string& name) {
-  string::size_type end_offset = 0;
+  string::size_type end_offset;
   string::size_type begin_offset = 0;
 
   while (begin_offset < name.size()) {

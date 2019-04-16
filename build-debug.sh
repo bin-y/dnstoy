@@ -1,3 +1,4 @@
+#!/bin/bash
 if [ ! -d build/debug ] ; then
   mkdir -p build/debug
 fi
