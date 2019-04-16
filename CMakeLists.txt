@@ -29,4 +29,11 @@ add_executable(dnstoy
   src/query.cpp src/resolver.cpp src/tls_resolver.cpp
   src/dns_message_decoder.cpp src/dns_message_encoder.cpp
 )
+
+if(MSVC)
+  target_compile_options(dnstoy PRIVATE /W4 /WX)
+else()
+  target_compile_options(dnstoy PRIVATE -Wall -Wextra -Werror)
+endif()
+
 target_link_libraries( dnstoy ${Boost_LIBRARIES} pthread ssl crypto )

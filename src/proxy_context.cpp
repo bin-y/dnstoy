@@ -36,7 +36,6 @@ void Context::ReplyFailure(QueryContext::pointer&& query) {
   using ResultType = dns::MessageEncoder::ResultType;
   auto& buffer = query->raw_message;
   buffer.resize(0);
-  size_t size_limit = 0;
 
   dns::Message response;
   response.header.id = id;
@@ -105,7 +104,7 @@ void Context::HandleUserMessage(
 }
 
 void Context::HandleQueryResult(QueryContext::pointer&& context,
-                                boost::system::error_code error) {
+                                boost::system::error_code /*error*/) {
   LOG_TRACE();
   if (context->status == QueryContext::Status::EXPIRED) {
     LOG_DEBUG("A query has expired");

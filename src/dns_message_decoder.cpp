@@ -273,7 +273,8 @@ inline MessageDecoder::ResultType MessageDecoder::DecodeName(
 
         auto offset_high_part =
             label->offset_type.high_part_with_flag & (~RawLabel::Flag::MASK);
-        auto to_offset = (offset_high_part << 8) | label->offset_type.low_part;
+        uint16_t to_offset =
+            (offset_high_part << 8) | label->offset_type.low_part;
 
         if (to_offset >= from_offset) {
           // offset should point to the label occured before

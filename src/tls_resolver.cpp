@@ -19,10 +19,10 @@ namespace dnstoy {
 
 TlsResolver::TlsResolver(const std::string& hostname,
                          const tcp_endpoints_type& endpoints)
-    : hostname_(hostname),
+    : ssl_context_(ssl::context::tls_client),
+      hostname_(hostname),
       endpoints_(endpoints),
-      timeout_timer_(Engine::get().GetExecutor()),
-      ssl_context_(ssl::context::tls_client) {
+      timeout_timer_(Engine::get().GetExecutor()) {
   // TODO: support more tls option from configuration
   // Use system cert
   ssl_context_.set_default_verify_paths();
@@ -47,7 +47,7 @@ void TlsResolver::UpdateSocketTimeout(DurationType duration) {
   timeout_timer_.async_wait([this](boost::system::error_code error) {
     if (!error) {
       LOG_DEBUG(<< hostname_ << " socket timed out");
-      if (sent_queries_.empty()) {
+      if (io_status_ == IOStatus::INITIALIZING || sent_queries_.empty()) {
         CloseConnection();
       } else {
         ResetConnection();
@@ -63,7 +63,7 @@ void TlsResolver::CloseConnection() {
     return;
   }
   socket_->lowest_layer().cancel();
-  socket_->async_shutdown([socket = std::move(socket_)](error_code error) {
+  socket_->async_shutdown([socket = std::move(socket_)](error_code) {
     socket->lowest_layer().close();
   });
   io_status_ = IOStatus::NOT_INITIALIZED;
@@ -213,7 +213,7 @@ void TlsResolver::DoWrite() {
   async_write(
       *socket_, boost::asio::buffer(context.raw_message),
       [this, hold_buffer = record.first](const boost::system::error_code& error,
-                                         std::size_t bytes_transfered) mutable {
+                                         std::size_t /*bytes_transfered*/) {
         if (error) {
           if (error == boost::asio::error::operation_aborted) {
             ResetConnection();
@@ -300,6 +300,7 @@ void TlsResolver::DropQuery(QueryManager::QueryRecord& record) {
     case QueryContext::Status::WAITING_FOR_ANSWER:
       error = boost::system::errc::make_error_code(
           boost::system::errc::bad_message);
+      break;
     default:
       LOG_ERROR();
       assert(false);

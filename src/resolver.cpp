@@ -31,7 +31,7 @@ void Resolver::Resolve(QueryContext::pointer&& query,
   // TODO: select server & resolver by rule
   if (server_instances_.empty()) {
     server_instances_.resize(server_configurations_.size());
-    for (auto i = 0; i < server_instances_.size(); i++) {
+    for (size_t i = 0; i < server_instances_.size(); i++) {
       server_speed_ranking_.insert(i);
     }
   }
@@ -121,7 +121,7 @@ int Resolver::init() {
 
     regex_token_iterator option(entry->first, entry->second, options_regex,
                                 1);  // 1 is regex sub match index
-    for (auto i = 0; option != regex_token_end; option++, i++) {
+    for (auto i = 0; option != regex_token_end; ++option, i++) {
       if (option->length() == 0) {
         continue;
       }
@@ -156,7 +156,7 @@ int Resolver::init() {
                                        sub_option_regex);
           while (address != regex_token_end) {
             addresses.emplace_back(&*address->first, address->length());
-            address++;
+            ++address;
           }
         } break;
         case 2: {
@@ -206,7 +206,7 @@ int Resolver::init() {
       return -1;
     }
     server_configurations_.emplace_back(std::move(server));
-    entry++;
+    ++entry;
   }
 
   if (server_configurations_.empty()) {

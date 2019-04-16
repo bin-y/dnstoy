@@ -3,9 +3,9 @@
 namespace dnstoy {
 
 PerformanceRecord::PerformanceRecord()
-    : time_cost_sum_(0),
-      average_time_cost_(0),
-      time_cost_record_(sample_count_, std::chrono::milliseconds(0)) {}
+    : time_cost_record_(sample_count_, std::chrono::milliseconds(0)),
+      time_cost_sum_(0),
+      average_time_cost_(0) {}
 
 void PerformanceRecord::record_and_decrease_load(
     std::chrono::milliseconds cost) {

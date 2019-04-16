@@ -237,8 +237,6 @@ inline MessageEncoder::ResultType EncodeResourceRecord(
     return MessageEncoder::ResultType::bad;
   }
 
-  auto fields_before_rdata_size =
-      sizeof(RawResourceRecord) - sizeof(RawResourceRecord::NAME);
   auto raw_record = reinterpret_cast<RawResourceRecord*>(
       context.buffer.data() + context.offset - sizeof(RawResourceRecord::NAME));
 
