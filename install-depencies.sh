@@ -1,4 +1,5 @@
 #!/bin/bash
+cd "$(dirname "$0")"
 mkdir -p libs
 cd libs
 apt-get install libssl-dev

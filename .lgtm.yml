@@ -2,8 +2,6 @@ path_classifiers:
   docs:
     - README.md
     - LICENSE.md
-  library:
-    - boost
 
 extraction:
   cpp:

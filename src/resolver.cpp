@@ -65,7 +65,7 @@ void Resolver::ResolveQueryWithServer(size_t server_index,
   auto& server = server_instances_[server_index];
   {
     // update server load and rank
-    auto handle = server_speed_ranking_.extract(server_speed_ranking_.begin());
+    auto handle = server_speed_ranking_.extract(server_index);
     server.performance_record.increase_load();
     server_speed_ranking_.insert(std::move(handle));
   }
@@ -192,7 +192,7 @@ int Resolver::init() {
       }
 
     } else {
-      // use user specific address
+      // use user specified address
       if (tls_port_number) {
         for (auto& address : addresses) {
           server.tls_endpoints.emplace_back(
