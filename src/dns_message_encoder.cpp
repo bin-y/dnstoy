@@ -31,7 +31,8 @@ class MessageEncoderContext {
 
 #define SAFE_SET_INT(TO_, FROM_)                               \
   do {                                                         \
-    if (std::numeric_limits<decltype(TO_)>::max() < (FROM_)) { \
+    if (std::numeric_limits<decltype(TO_)>::max() < (FROM_) || \
+        std::numeric_limits<decltype(TO_)>::min() > (FROM_)) { \
       return MessageEncoder::ResultType::bad;                  \
     }                                                          \
     (TO_) = endian::native_to_big(FROM_);                      \
@@ -137,10 +138,10 @@ MessageEncoder::ResultType MessageEncoder::Truncate(uint8_t* buffer,
     while (section_count) {
       section_count--;
       new_size = offsets.back();
+      offsets.pop_back();
       if (new_size < size_limit) {
         return;
       }
-      offsets.pop_back();
     }
   };
 
