@@ -163,6 +163,7 @@ void Context::DoWrite() {
   auto query = std::move(reply_queue_.front());
   reply_queue_.pop();
 
+  auto& endpoint = query->endpoint;
   auto write_data = query->raw_message.data();
   auto write_size = query->raw_message.size();
 
@@ -183,8 +184,7 @@ void Context::DoWrite() {
     write_data += offsetof(dns::RawTcpMessage, message);
     write_size -= offsetof(dns::RawTcpMessage, message);
     socket.async_send_to(boost::asio::buffer(write_data, write_size),
-                         std::get<udp::endpoint>(query->endpoint),
-                         std::move(handler));
+                         std::get<udp::endpoint>(endpoint), std::move(handler));
   } else {
     auto& socket = std::get<tcp::socket>(socket_);
     if (!socket.is_open()) {
