@@ -20,6 +20,7 @@ namespace dnstoy {
 namespace proxy {
 
 void Context::Stop() {
+  message_reader_.Stop();
   if (std::holds_alternative<boost::asio::ip::udp::socket>(socket_)) {
     error_code error;
     std::get<udp::socket>(socket_).close();
@@ -195,5 +196,6 @@ void Context::DoWrite() {
   }
 }
 
+Context::~Context() { message_reader_.Stop(); }
 }  // namespace proxy
 }  // namespace dnstoy

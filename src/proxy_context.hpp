@@ -45,6 +45,8 @@ class Context : public std::enable_shared_from_this<Context> {
   }
   void Stop();
 
+  ~Context();
+
  private:
   std::variant<nullptr_t, boost::asio::ip::tcp::socket,
                boost::asio::ip::udp::socket>
