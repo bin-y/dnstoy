@@ -13,6 +13,7 @@ using boost::asio::async_write;
 using boost::asio::ip::make_address;
 using boost::asio::ip::tcp;
 using boost::system::error_code;
+using std::chrono::milliseconds;
 using std::chrono::seconds;
 
 namespace dnstoy {
@@ -22,7 +23,8 @@ TlsResolver::TlsResolver(const std::string& hostname,
     : ssl_context_(ssl::context::tls_client),
       hostname_(hostname),
       endpoints_(endpoints),
-      timeout_timer_(Engine::get().GetExecutor()) {
+      timeout_timer_(Engine::get().GetExecutor()),
+      retry_timer_(Engine::get().GetExecutor()) {
   // TODO: support more tls option from configuration
   // Use system cert
   ssl_context_.set_default_verify_paths();
@@ -34,8 +36,8 @@ TlsResolver::TlsResolver(const std::string& hostname,
 void TlsResolver::Resolve(QueryContext::pointer& query,
                           QueryResultHandler& handler) {
   query_manager_.QueueQuery(query, handler);
-  if (io_status_ == IOStatus::NOT_INITIALIZED) {
-    ResetConnection();
+  if (io_status_ < IOStatus::READY) {
+    Reconnect();
   } else {
     DoWrite();
   }
@@ -50,7 +52,7 @@ void TlsResolver::UpdateSocketTimeout(DurationType duration) {
       if (io_status_ == IOStatus::INITIALIZING || sent_queries_.empty()) {
         CloseConnection();
       } else {
-        ResetConnection();
+        Reconnect();
       }
     }
   });
@@ -62,22 +64,56 @@ void TlsResolver::CloseConnection() {
   if (!socket_ || !socket_->lowest_layer().is_open()) {
     return;
   }
-  socket_->lowest_layer().cancel();
-  socket_->async_shutdown([socket = std::move(socket_)](error_code) {
-    socket->lowest_layer().close();
+  auto& socket = *socket_.get();
+  socket.lowest_layer().cancel();
+
+  socket.async_shutdown([socket_pointer = std::move(socket_)](error_code) {
+    socket_pointer->lowest_layer().close();
   });
-  io_status_ = IOStatus::NOT_INITIALIZED;
+  if (io_status_ == IOStatus::READY) {
+    io_status_ = IOStatus::NOT_INITIALIZED;
+  }
 }
 
-void TlsResolver::ResetConnection() {
-  if (io_status_ == IOStatus::INITIALIZING) {
+void TlsResolver::Reconnect() {
+  if (io_status_ == IOStatus::NOT_INITIALIZED) {
+    Connect();
+    return;
+  }
+  if (io_status_ == IOStatus::INITIALIZATION_DELAYED_FOR_RETRY) {
     return;
   }
   CloseConnection();
+  if (retry_connect_counter_ == 0) {
+    retry_connect_counter_++;
+    Connect();
+    return;
+  }
+  io_status_ = IOStatus::INITIALIZATION_DELAYED_FOR_RETRY;
+  auto wait_time =
+      std::min(first_retry_interval_ * (1 << retry_connect_counter_),
+               max_retry_interval_);
+  retry_connect_counter_++;
+  timeout_timer_.expires_after(wait_time);
+  timeout_timer_.async_wait([this](boost::system::error_code error) {
+    if (error) {
+      LOG_ERROR(<< error.message());
+      return;
+    }
+    io_status_ = IOStatus::NOT_INITIALIZED;
+    Connect();
+  });
+}
+
+void TlsResolver::Connect() {
+  if (io_status_ != IOStatus::NOT_INITIALIZED) {
+    return;
+  }
   io_status_ = IOStatus::INITIALIZING;
   message_reader_.reset();
   socket_ =
       std::make_unique<stream_type>(Engine::get().GetExecutor(), ssl_context_);
+  stream_instance_id_++;
   LOG_INFO(<< hostname_);
 
   {
@@ -117,12 +153,15 @@ void TlsResolver::ResetConnection() {
 
   UpdateSocketTimeout(seconds(10));
 
-  auto handler = [this](const boost::system::error_code& error,
-                        const tcp::endpoint& /*endpoint*/) {
+  auto handler = [this, old_instance_id = stream_instance_id_](
+                     const boost::system::error_code& error,
+                     const tcp::endpoint& /*endpoint*/) {
+    if (stream_instance_id_ != old_instance_id) {
+      return;
+    }
     if (error) {
       LOG_ERROR(<< hostname_ << " connect failed: " << error.message());
-      io_status_ = IOStatus::INITIALIZATION_FAILED;
-      ResetConnection();
+      Reconnect();
       return;
     }
     Handshake();
@@ -136,14 +175,18 @@ void TlsResolver::Handshake() {
   UpdateSocketTimeout(idle_timeout_);
   socket_->async_handshake(
       boost::asio::ssl::stream_base::client,
-      [this](const boost::system::error_code& error) {
+      [this, old_instance_id =
+                 stream_instance_id_](const boost::system::error_code& error) {
+        if (stream_instance_id_ != old_instance_id) {
+          return;
+        }
         if (error) {
           LOG_ERROR(<< hostname_ << " handshake failed: " << error.message());
-          io_status_ = IOStatus::INITIALIZATION_FAILED;
-          ResetConnection();
+          Reconnect();
           return;
         }
         io_status_ = IOStatus::READY;
+        retry_connect_counter_ = 0;
         LOG_TRACE(<< hostname_ << " handshake success");
         UpdateSocketTimeout(idle_timeout_);
         if (query_manager_.QueueSize()) {
@@ -164,7 +207,7 @@ void TlsResolver::DoWrite() {
   }
   if (io_status_ != IOStatus::READY) {
     LOG_TRACE(<< hostname_ << " IO not ready");
-    ResetConnection();
+    Reconnect();
     return;
   }
   UpdateSocketTimeout(idle_timeout_);
@@ -212,15 +255,17 @@ void TlsResolver::DoWrite() {
   sent_queries_[id] = record;
   async_write(
       *socket_, boost::asio::buffer(context.raw_message),
-      [this, hold_buffer = record.first](const boost::system::error_code& error,
-                                         std::size_t /*bytes_transfered*/) {
+      [this, old_instance_id = stream_instance_id_, hold_buffer = record.first](
+          const boost::system::error_code& error,
+          std::size_t /*bytes_transfered*/) {
+        if (stream_instance_id_ != old_instance_id) {
+          return;
+        }
         if (error) {
-          if (error == boost::asio::error::operation_aborted) {
-            ResetConnection();
-            return;
+          if (error != boost::asio::error::operation_aborted) {
+            LOG_ERROR(<< hostname_ << " write failed " << error.message());
           }
-          LOG_ERROR(<< hostname_ << " write failed " << error.message());
-          ResetConnection();
+          Reconnect();
           return;
         }
         io_status_ = IOStatus::READY;

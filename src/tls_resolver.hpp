@@ -24,6 +24,8 @@ class TlsResolver {
   using stream_type = boost::asio::ssl::stream<boost::asio::ip::tcp::socket>;
   boost::asio::ssl::context ssl_context_;
   std::unique_ptr<stream_type> socket_;
+  uint16_t stream_instance_id_ = 0;
+  uint16_t retry_connect_counter_ = 0;
   QueryManager query_manager_;
   std::string hostname_;
   tcp_endpoints_type endpoints_;
@@ -31,10 +33,17 @@ class TlsResolver {
   MessageReader message_reader_;
   std::chrono::seconds idle_timeout_ = std::chrono::seconds(30);
   boost::asio::steady_timer timeout_timer_;
+  std::chrono::milliseconds first_retry_interval_ =
+      std::chrono::milliseconds(500);
+  std::chrono::milliseconds max_retry_interval_ =
+      std::chrono::milliseconds(5 * 60 * 1000);
+  boost::asio::steady_timer retry_timer_;
   enum class IOStatus {
     NOT_INITIALIZED,
-    INITIALIZATION_FAILED,
+    INITIALIZATION_DELAYED_FOR_RETRY,
     INITIALIZING,
+    // keep it always bigger than READY the value of the status that requires
+    // READY state
     READY,
     WRITING,
   } io_status_ = IOStatus::NOT_INITIALIZED;
@@ -42,7 +51,8 @@ class TlsResolver {
   template <typename DurationType>
   void UpdateSocketTimeout(DurationType duration);
   void CloseConnection();
-  void ResetConnection();
+  void Reconnect();
+  void Connect();
   void Handshake();
   void DoWrite();
   void HandleServerMessage(MessageReader::Reason reason, const uint8_t* data,
