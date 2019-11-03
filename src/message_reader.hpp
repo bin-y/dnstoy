@@ -46,7 +46,13 @@ class MessageReader {
         }
         DoReadUdp(stream, std::move(handler));
       } else {
-        DoReadStream(stream, std::move(handler));
+        if constexpr (std::is_same<StreamType,
+                                   boost::asio::ip::tcp::socket>::value) {
+          DoReadStream(&stream, std::move(handler));
+        } else {
+          // ssl object should pass shared_ptr
+          DoReadStream(stream, std::move(handler));
+        }
       }
     }
   }
@@ -65,15 +71,15 @@ class MessageReader {
 
   std::vector<uint8_t> buffer_;
 
-  template <typename StreamType, typename HandlerType>
-  void DoReadStream(StreamType& stream, HandlerType&& handler) {
+  template <typename StreamPointerType, typename HandlerType>
+  void DoReadStream(StreamPointerType stream_pointer, HandlerType&& handler) {
     if (status_ == Status::STOP) {
       handler(Reason::MANUAL_STOPPED, nullptr, 0);
       status_ = Status::STOP;
       LOG_TRACE("manual stopped");
       return;
     }
-    if (!stream.lowest_layer().is_open()) {
+    if (!stream_pointer->lowest_layer().is_open()) {
       handler(Reason::MANUAL_STOPPED, nullptr, 0);
       status_ = Status::STOP;
       LOG_TRACE("connection closed");
@@ -98,7 +104,10 @@ class MessageReader {
 
     LOG_TRACE("start async_read " << read_size);
 
-    auto boost_handler = [this, &stream, handler = std::move(handler)](
+    auto raw_stream_pointer = &*stream_pointer;
+
+    auto boost_handler = [this, stream_pointer = std::move(stream_pointer),
+                          handler = std::move(handler)](
                              boost::system::error_code error,
                              size_t new_data_size) {
       if (error) {
@@ -114,6 +123,7 @@ class MessageReader {
         status_ = Status::STOP;
         return;
       }
+
       LOG_TRACE("Income data " << new_data_size);
       data_size_ += new_data_size;
       do {
@@ -136,11 +146,11 @@ class MessageReader {
         data_offset_ += tcp_message_size_;
         tcp_message_size_ = 0;
       } while (data_size_ >= tcp_message_size_);
-      DoReadStream(stream, std::move(handler));
+      DoReadStream(stream_pointer, std::move(handler));
     };
 
     boost::asio::async_read(
-        stream, boost::asio::buffer(read_buffer, available_size),
+        *raw_stream_pointer, boost::asio::buffer(read_buffer, available_size),
         boost::asio::transfer_at_least(read_size), boost_handler);
   }
 

@@ -4,6 +4,7 @@
 #include <boost/asio/ssl.hpp>
 #include <boost/asio/steady_timer.hpp>
 #include <chrono>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <variant>
@@ -23,8 +24,12 @@ class TlsResolver {
  private:
   using stream_type = boost::asio::ssl::stream<boost::asio::ip::tcp::socket>;
   boost::asio::ssl::context ssl_context_;
-  std::unique_ptr<stream_type> socket_;
-  uint16_t stream_instance_id_ = 0;
+  // NOTE:
+  // do not use unique_ptr for stream as A stream object must not be destroyed
+  // while there are pending asynchronous operations associated with it.
+  // TODO:
+  // implement a non-atomic shared_ptr for better performance
+  std::shared_ptr<stream_type> socket_;
   uint16_t retry_connect_counter_ = 0;
   QueryManager query_manager_;
   std::string hostname_;

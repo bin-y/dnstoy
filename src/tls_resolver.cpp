@@ -45,6 +45,7 @@ void TlsResolver::Resolve(QueryContext::pointer& query,
 
 template <typename DurationType>
 void TlsResolver::UpdateSocketTimeout(DurationType duration) {
+  LOG_TRACE(<< hostname_);
   timeout_timer_.expires_after(duration);
   timeout_timer_.async_wait([this](boost::system::error_code error) {
     if (!error) {
@@ -60,19 +61,21 @@ void TlsResolver::UpdateSocketTimeout(DurationType duration) {
 
 void TlsResolver::CloseConnection() {
   LOG_TRACE(<< hostname_);
+  io_status_ = IOStatus::NOT_INITIALIZED;
   message_reader_.Stop();
-  if (!socket_ || !socket_->lowest_layer().is_open()) {
+  if (!socket_) {
     return;
   }
-  auto& socket = *socket_.get();
-  socket.lowest_layer().cancel();
 
-  socket.async_shutdown([socket_pointer = std::move(socket_)](error_code) {
-    socket_pointer->lowest_layer().close();
-  });
-  if (io_status_ == IOStatus::READY) {
-    io_status_ = IOStatus::NOT_INITIALIZED;
-  }
+  // TODO:
+  // not calling async_shutdown for
+  // https://github.com/boostorg/asio/issues/164#issuecomment-446250421
+  // , but finding out a indicator, like query_manager_.QueueSize() == 0, for
+  // potential heathy connections, and call async_shutdown on those connections
+  // with a timeout timer is a more graceful way
+  socket_->lowest_layer().cancel();
+  socket_->lowest_layer().close();
+  socket_.reset();
 }
 
 void TlsResolver::Reconnect() {
@@ -112,8 +115,7 @@ void TlsResolver::Connect() {
   io_status_ = IOStatus::INITIALIZING;
   message_reader_.reset();
   socket_ =
-      std::make_unique<stream_type>(Engine::get().GetExecutor(), ssl_context_);
-  stream_instance_id_++;
+      std::make_shared<stream_type>(Engine::get().GetExecutor(), ssl_context_);
   LOG_INFO(<< hostname_);
 
   {
@@ -153,10 +155,10 @@ void TlsResolver::Connect() {
 
   UpdateSocketTimeout(seconds(10));
 
-  auto handler = [this, old_instance_id = stream_instance_id_](
+  auto handler = [this, for_stream = socket_](
                      const boost::system::error_code& error,
                      const tcp::endpoint& /*endpoint*/) {
-    if (stream_instance_id_ != old_instance_id) {
+    if (!for_stream->lowest_layer().is_open()) {
       return;
     }
     if (error) {
@@ -175,9 +177,8 @@ void TlsResolver::Handshake() {
   UpdateSocketTimeout(idle_timeout_);
   socket_->async_handshake(
       boost::asio::ssl::stream_base::client,
-      [this, old_instance_id =
-                 stream_instance_id_](const boost::system::error_code& error) {
-        if (stream_instance_id_ != old_instance_id) {
+      [this, for_stream = socket_](const boost::system::error_code& error) {
+        if (!for_stream->lowest_layer().is_open()) {
           return;
         }
         if (error) {
@@ -194,9 +195,9 @@ void TlsResolver::Handshake() {
           DoWrite();
         }
         message_reader_.Start(
-            *socket_, std::bind(&TlsResolver::HandleServerMessage, this,
-                                std::placeholders::_1, std::placeholders::_2,
-                                std::placeholders::_3));
+            socket_, std::bind(&TlsResolver::HandleServerMessage, this,
+                               std::placeholders::_1, std::placeholders::_2,
+                               std::placeholders::_3));
       });
 }
 
@@ -255,10 +256,10 @@ void TlsResolver::DoWrite() {
   sent_queries_[id] = record;
   async_write(
       *socket_, boost::asio::buffer(context.raw_message),
-      [this, old_instance_id = stream_instance_id_, hold_buffer = record.first](
+      [this, for_stream = socket_, hold_buffer = record.first](
           const boost::system::error_code& error,
           std::size_t /*bytes_transfered*/) {
-        if (stream_instance_id_ != old_instance_id) {
+        if (!for_stream->lowest_layer().is_open()) {
           return;
         }
         if (error) {
