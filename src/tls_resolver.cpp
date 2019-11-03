@@ -31,6 +31,8 @@ TlsResolver::TlsResolver(const std::string& hostname,
   // minor tls version set to 1.2
   ssl_context_.set_options(ssl::context::default_workarounds |
                            ssl::context::no_tlsv1 | ssl::context::no_tlsv1_1);
+  SSL_CTX_set_session_cache_mode(ssl_context_.native_handle(),
+                                 SSL_SESS_CACHE_NO_INTERNAL);
 }
 
 void TlsResolver::Resolve(QueryContext::pointer& query,
@@ -67,6 +69,7 @@ void TlsResolver::CloseConnection() {
     return;
   }
 
+  ssl_session_ = SSL_get1_session(socket_->native_handle());
   // TODO:
   // not calling async_shutdown for
   // https://github.com/boostorg/asio/issues/164#issuecomment-446250421
@@ -132,6 +135,10 @@ void TlsResolver::Connect() {
   }
 
   socket_->set_verify_mode(ssl::verify_peer);
+
+  if (ssl_session_) {
+    SSL_set_session(socket_->native_handle(), ssl_session_);
+  }
 
   {
     // Enable automatic hostname checks

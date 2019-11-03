@@ -24,6 +24,7 @@ class TlsResolver {
  private:
   using stream_type = boost::asio::ssl::stream<boost::asio::ip::tcp::socket>;
   boost::asio::ssl::context ssl_context_;
+  SSL_SESSION* ssl_session_ = nullptr;
   // NOTE:
   // do not use unique_ptr for stream as A stream object must not be destroyed
   // while there are pending asynchronous operations associated with it.
