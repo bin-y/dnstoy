@@ -13,7 +13,7 @@ fi
 # -- Get boost includes --------------------------------------------------------
 # ==============================================================================
 
-BOOST_VERSION=1.70.0
+BOOST_VERSION=1.71.0
 BOOST_BASENAME="boost-${BOOST_VERSION}"
 
 if [[ -d "${BOOST_BASENAME}-install" ]] ; then
