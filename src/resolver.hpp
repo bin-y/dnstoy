@@ -5,6 +5,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+
 #include "performance_record.hpp"
 #include "query.hpp"
 #include "tls_resolver.hpp"
@@ -49,10 +50,18 @@ class Resolver {
   static thread_local std::set<size_t, ComparePerformanceRank>
       server_speed_ranking_;
   static thread_local size_t round_robin_for_idle;
+  static std::vector<uint8_t> edns0_client_subnet_;
 
+  static bool Preprocess(QueryContext::pointer& query,
+                         QueryResultHandler& handler);
+  static void Dispatch(QueryContext::pointer& query,
+                       QueryResultHandler& handler);
   static void ResolveQueryWithServer(size_t server_index,
                                      QueryContext::pointer& query,
                                      QueryResultHandler& handler);
+
+  static int LoadRemoteServers();
+  static int LoadEDNS0ClientSubnet();
 };
 
 }  // namespace dnstoy

@@ -3,6 +3,7 @@
 #include <iostream>
 #include <string>
 #include <vector>
+
 #include "dns_definition_raw.hpp"
 
 namespace dnstoy {
@@ -26,7 +27,7 @@ enum class RCODE : int16_t {
   REFUSED
 };
 
-enum class TYPE : int16_t {
+enum class TYPE : uint16_t {
   A = 1,      // a host address
   NS,         // an authoritative name server
   MD,         // a mail destination (Obsolete - use MX)
@@ -72,10 +73,19 @@ struct Question {
 struct ResourceRecord {
   std::string name;
   uint16_t type;
-  uint16_t the_class;
-  uint32_t ttl;
+  union {
+    struct {
+      uint16_t the_class;
+      uint32_t ttl;
+    } normal_type;
+    struct {
+      uint16_t udp_payload_size;
+      uint8_t extended_rcode;
+      uint8_t edns_version;
+      uint16_t Z;
+    } edns0_type;
+  };
   std::vector<uint8_t> rdata;
-
   inline void reset() {
     name.clear();
     rdata.clear();

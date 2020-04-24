@@ -1,6 +1,7 @@
 #include <boost/endian/conversion.hpp>
 #include <string>
 #include <vector>
+
 #include "dns.hpp"
 #include "logging.hpp"
 
@@ -358,8 +359,8 @@ inline MessageDecoder::ResultType MessageDecoder::DecodeResourceRecord(
   auto raw_record = reinterpret_cast<const RawResourceRecord*>(
       buffer + from_offset - sizeof(RawResourceRecord::NAME));
   record.type = endian::big_to_native(raw_record->TYPE);
-  record.the_class = endian::big_to_native(raw_record->CLASS);
-  record.ttl = endian::big_to_native(raw_record->TTL);
+  record.normal_type.the_class = endian::big_to_native(raw_record->CLASS);
+  record.normal_type.ttl = endian::big_to_native(raw_record->TTL);
   auto rdata_size = endian::big_to_native(raw_record->RDLENGTH);
 
   if (from_offset + fields_before_rdata_size + rdata_size > buffer_size) {
@@ -383,6 +384,12 @@ MessageDecoder::ResultType MessageDecoder::ReadIDFromTcpMessage(
       *reinterpret_cast<const decltype(dns::RawHeader::ID)*>(buffer +
                                                              read_offset));
   return ResultType::good;
+}
+bool MessageDecoder::IsMessageContainsEDNS(const Message& message) {
+  return std::any_of(message.additional.begin(), message.additional.end(),
+                     [](const ResourceRecord& record) {
+                       return record.type == static_cast<uint16_t>(TYPE::OPT);
+                     });
 }
 
 }  // namespace dns

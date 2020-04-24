@@ -72,14 +72,14 @@ struct RawHeader {
 };
 
 struct RawLabel {
-  struct Flag {
+  typedef struct Flag_t {
     static constexpr uint8_t MASK =
         0b11000000;  // not a flag, flag value = (flag & MASK)
     static constexpr uint8_t NORMAL = 0b00000000;
     static constexpr uint8_t OFFSET = 0b11000000;
     static constexpr uint8_t RESERVED1 = 0b01000000;
     static constexpr uint8_t RESERVED2 = 0b10000000;
-  };
+  } Flag;
   union {
     uint8_t flag;
     struct {
@@ -108,6 +108,38 @@ struct RawResourceRecord {
   uint32_t TTL;
   uint16_t RDLENGTH;
   uint8_t RDATA[];
+};
+
+struct EDNS0ResourceRecord {
+  uint8_t name;
+  uint16_t type;
+  uint16_t udp_payload_size;
+  uint8_t extended_rcode;
+  uint8_t edns_version;
+  uint16_t Z;
+  uint16_t rdata_length;
+  uint8_t rdata[];
+};
+
+struct EDNSOption {
+  typedef enum CodeType_t : uint16_t {
+    CLIENT_SUBNET = 8,
+    TCP_KEEPALIVE = 11,
+    PADDING = 12
+  } CodeType;
+  uint16_t code;
+  uint16_t length;
+  uint8_t data[];
+  typedef struct ClientSubnet_t {
+    typedef enum class FamilyType_t : uint16_t {
+      IPV4 = 1,
+      IPV6 = 2
+    } FamilyType;
+    uint16_t family;
+    uint8_t source_prefix_length;
+    uint8_t scope_prefix_length;
+    uint8_t address[];
+  } ClientSubnet;
 };
 
 #pragma pack(pop)

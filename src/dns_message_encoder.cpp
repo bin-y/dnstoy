@@ -5,6 +5,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+
 #include "dns.hpp"
 
 namespace endian = boost::endian;
@@ -29,13 +30,13 @@ class MessageEncoderContext {
               (((VALUE_) << RawHeader::Flag::FLAG_NAME_##_offset) & \
                RawHeader::Flag::FLAG_NAME_##_mask))
 
-#define SAFE_SET_INT(TO_, FROM_)                               \
-  do {                                                         \
-    if (std::numeric_limits<decltype(TO_)>::max() < (FROM_) || \
-        std::numeric_limits<decltype(TO_)>::min() > (FROM_)) { \
-      return MessageEncoder::ResultType::bad;                  \
-    }                                                          \
-    (TO_) = endian::native_to_big(FROM_);                      \
+#define SAFE_SET_INT(TO_, FROM_)                                      \
+  do {                                                                \
+    if (std::numeric_limits<decltype(TO_)>::max() < (FROM_) ||        \
+        std::numeric_limits<decltype(TO_)>::min() > (FROM_)) {        \
+      return MessageEncoder::ResultType::bad;                         \
+    }                                                                 \
+    (TO_) = endian::native_to_big(static_cast<decltype(TO_)>(FROM_)); \
   } while (false)
 
 inline bool EncodeName(MessageEncoderContext& context, const string& name);
@@ -190,6 +191,70 @@ MessageEncoder::ResultType MessageEncoder::RewriteIDToTcpMessage(
   return ResultType::good;
 }
 
+MessageEncoder::ResultType
+MessageEncoder::EncodeEDNS0ClientSubnetResoureceRecord(
+    std::vector<uint8_t>& buffer, uint16_t udp_payload_size,
+    EDNSOption::ClientSubnet& options, const uint8_t* address) {
+  auto unaligned_length = options.source_prefix_length % 8;
+  auto address_memcpy_length = options.source_prefix_length / 8;
+  auto address_length = address_memcpy_length;
+  if (unaligned_length) {
+    address_length++;
+  }
+
+  buffer.resize(sizeof(EDNS0ResourceRecord) + sizeof(EDNSOption) +
+                sizeof(EDNSOption::ClientSubnet) + address_length);
+  auto resource_record = reinterpret_cast<EDNS0ResourceRecord*>(buffer.data());
+  memset(resource_record, 0, sizeof(EDNS0ResourceRecord));
+  resource_record->type =
+      endian::native_to_big(static_cast<uint16_t>(TYPE::OPT));
+  resource_record->udp_payload_size = endian::native_to_big(udp_payload_size);
+  resource_record->rdata_length = endian::native_to_big(static_cast<uint16_t>(
+      sizeof(EDNSOption) + sizeof(EDNSOption::ClientSubnet) + address_length));
+  auto option = reinterpret_cast<EDNSOption*>(resource_record->rdata);
+  option->code = endian::native_to_big(
+      static_cast<uint16_t>(EDNSOption::CodeType::CLIENT_SUBNET));
+  option->length = endian::native_to_big(
+      static_cast<uint16_t>(sizeof(EDNSOption::ClientSubnet) + address_length));
+  auto client_subnet =
+      reinterpret_cast<EDNSOption::ClientSubnet*>(option->data);
+  client_subnet->family = endian::native_to_big(options.family);
+  client_subnet->source_prefix_length = options.source_prefix_length;
+  client_subnet->scope_prefix_length = options.scope_prefix_length;
+  memcpy(client_subnet->address, address, address_memcpy_length);
+  if (unaligned_length) {
+    client_subnet->address[address_memcpy_length] =
+        0b10000000 | address[address_memcpy_length];
+    while (unaligned_length > 1) {
+      client_subnet->address[address_memcpy_length] |=
+          (1 << (8 - unaligned_length)) | address[address_memcpy_length];
+      unaligned_length--;
+    }
+  }
+  return ResultType::good;
+}
+
+MessageEncoder::ResultType
+MessageEncoder::AppendAdditionalResourceRecordToRawTcpMessage(
+    std::vector<uint8_t>& message_buffer, const uint8_t* raw_resource_record,
+    uint16_t raw_resource_record_length) {
+  auto tcp_header = reinterpret_cast<RawTcpMessage*>(message_buffer.data());
+  {
+    auto message_length = endian::big_to_native(tcp_header->message_length) +
+                          raw_resource_record_length;
+    SAFE_SET_INT(tcp_header->message_length, message_length);
+  }
+
+  auto header = reinterpret_cast<RawHeader*>(tcp_header->message);
+  {
+    auto arcount = endian::big_to_native(header->ARCOUNT) + 1;
+    SAFE_SET_INT(header->ARCOUNT, arcount);
+  }
+  message_buffer.insert(message_buffer.end(), raw_resource_record,
+                        raw_resource_record + raw_resource_record_length);
+  return ResultType::good;
+}
+
 inline bool EncodeName(MessageEncoderContext& context, const string& name) {
   string::size_type end_offset;
   string::size_type begin_offset = 0;
@@ -210,9 +275,6 @@ inline bool EncodeName(MessageEncoderContext& context, const string& name) {
     end_offset = name.find('.', begin_offset);
     if (end_offset == string::npos) {
       end_offset = name.size();
-    }
-    if (end_offset == begin_offset) {
-      return false;
     }
     auto label_length = end_offset - begin_offset;
     if (label_length > std::numeric_limits<uint8_t>::max()) {
@@ -242,8 +304,8 @@ inline MessageEncoder::ResultType EncodeResourceRecord(
       context.buffer.data() + context.offset - sizeof(RawResourceRecord::NAME));
 
   raw_record->TYPE = endian::native_to_big(record.type);
-  raw_record->CLASS = endian::native_to_big(record.the_class);
-  raw_record->TTL = endian::native_to_big(record.ttl);
+  raw_record->CLASS = endian::native_to_big(record.normal_type.the_class);
+  raw_record->TTL = endian::native_to_big(record.normal_type.ttl);
   SAFE_SET_INT(raw_record->RDLENGTH, record.rdata.size());
   context.buffer.insert(context.buffer.end(), record.rdata.begin(),
                         record.rdata.end());

@@ -12,7 +12,7 @@ Not ready for production
   - [x] Resolve query via mutliple remote servers (when under light load)
   - [x] SSL session cache
   - [ ] [rfc7828 The edns-tcp-keepalive EDNS0 Option](https://tools.ietf.org/html/rfc7828)
-  - [ ] [rfc7871 Client Subnet in DNS Queries](https://tools.ietf.org/html/rfc7871)
+  - [x] [rfc7871 Client Subnet in DNS Queries](https://tools.ietf.org/html/rfc7871)
   - [ ] [rfc7830 The EDNS(0) Padding Option](https://tools.ietf.org/html/rfc7830)
   - [ ] Cache
   - [ ] Support TCP/UDP foreign server

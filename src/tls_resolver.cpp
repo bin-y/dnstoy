@@ -70,12 +70,6 @@ void TlsResolver::CloseConnection() {
   }
 
   ssl_session_ = SSL_get1_session(socket_->native_handle());
-  // TODO:
-  // not calling async_shutdown for
-  // https://github.com/boostorg/asio/issues/164#issuecomment-446250421
-  // , but finding out a indicator, like query_manager_.QueueSize() == 0, for
-  // potential heathy connections, and call async_shutdown on those connections
-  // with a timeout timer is a more graceful way
   socket_->lowest_layer().cancel();
   socket_->lowest_layer().close();
   socket_.reset();

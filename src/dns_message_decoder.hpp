@@ -4,6 +4,7 @@
 #include <boost/endian/conversion.hpp>
 #include <string>
 #include <vector>
+
 #include "dns_definition.hpp"
 
 namespace dnstoy {
@@ -23,6 +24,7 @@ class MessageDecoder {
                                            size_t buffer_size);
   static ResultType ReadIDFromTcpMessage(const uint8_t* buffer,
                                          size_t buffer_size, int16_t& id);
+  static bool IsMessageContainsEDNS(const Message& message);
 
  private:
   enum class FieldType {

@@ -52,6 +52,9 @@ class Configuration {
     add_configuration_option("query-timeout",
                              bpo::value<uint32_t>()->default_value(10000),
                              "timeout for every query in milliseconds");
+    add_configuration_option("edns0-client-subnet",
+                             bpo::value<string>()->default_value("0.0.0.0/0"),
+                             "EDNS0 client subnet [address/range]");
     add_configuration_option(
         "remote-servers",
         bpo::value<string>()->default_value(

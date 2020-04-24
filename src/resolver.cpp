@@ -1,7 +1,9 @@
 #include "resolver.hpp"
+
 #include <chrono>
 #include <regex>
 #include <string>
+
 #include "configuration.hpp"
 #include "dns.hpp"
 #include "engine.hpp"
@@ -25,9 +27,28 @@ thread_local std::vector<Resolver::ServerInstanceStore>
 thread_local std::set<size_t, Resolver::ComparePerformanceRank>
     Resolver::server_speed_ranking_;
 thread_local size_t Resolver::round_robin_for_idle = 0;
+std::vector<uint8_t> Resolver::edns0_client_subnet_;
 
 void Resolver::Resolve(QueryContext::pointer&& query,
                        QueryResultHandler&& handler) {
+  if (Preprocess(query, handler)) {
+    Dispatch(query, handler);
+  }
+}
+
+bool Resolver::Preprocess(QueryContext::pointer& query,
+                          QueryResultHandler& /*handler*/) {
+  if (edns0_client_subnet_.size() &&
+      !dns::MessageDecoder::IsMessageContainsEDNS(query->query)) {
+    dns::MessageEncoder::AppendAdditionalResourceRecordToRawTcpMessage(
+        query->raw_message, edns0_client_subnet_.data(),
+        edns0_client_subnet_.size());
+  }
+  return true;
+}
+
+void Resolver::Dispatch(QueryContext::pointer& query,
+                        QueryResultHandler& handler) {
   // TODO: select server & resolver by rule
   if (server_instances_.empty()) {
     server_instances_.resize(server_configurations_.size());
@@ -42,7 +63,7 @@ void Resolver::Resolve(QueryContext::pointer&& query,
     return;
   }
   // round robin for idle gives an oppotunity to low ranking server to prove
-  // it's performance when idle, some public server may performances bad when
+  // its performance when idle, as a public server may performances bad when
   // busy but performances good when idle
   round_robin_for_idle++;
   round_robin_for_idle %= server_instances_.size();
@@ -105,6 +126,14 @@ void Resolver::ResolveQueryWithServer(size_t server_index,
 }
 
 int Resolver::init() {
+  auto result = LoadRemoteServers();
+  if (result != 0) {
+    return result;
+  }
+  return LoadEDNS0ClientSubnet();
+}
+
+int Resolver::LoadRemoteServers() {
   auto configuration = Configuration::get("remote-servers").as<string>();
   // example: tls@853|udp@53/8.8.8.8|8.8.4.4/dns.google
   std::regex entries_regex("[^,]+");
@@ -212,6 +241,51 @@ int Resolver::init() {
   if (server_configurations_.empty()) {
     LOG_ERROR("no available remote server found");
     return -1;
+  }
+  return 0;
+}
+
+int Resolver::LoadEDNS0ClientSubnet() {
+  auto configuration = Configuration::get("edns0-client-subnet").as<string>();
+  auto indicator_position = configuration.rfind('/');
+  if (indicator_position == string::npos) {
+    LOG_ERROR("invalid client subnet configuration: " << configuration);
+    return -1;
+  }
+  auto prefix_length = std::stoi(&configuration[indicator_position + 1]);
+  if (prefix_length == 0) {
+    return 0;
+  }
+  if (prefix_length < 0 ||
+      prefix_length > std::numeric_limits<uint8_t>::max()) {
+    LOG_ERROR("invalid prefix length:" << prefix_length);
+    return -1;
+  }
+  configuration.resize(indicator_position);
+
+  auto address = make_address(configuration);
+  dns::EDNSOption::ClientSubnet encode_options;
+  encode_options.source_prefix_length = prefix_length;
+  encode_options.scope_prefix_length = 0;
+  if (address.is_v4()) {
+    encode_options.family =
+        static_cast<uint16_t>(dns::EDNSOption::ClientSubnet::FamilyType::IPV4);
+    auto address_data = address.to_v4().to_bytes();
+    dns::MessageEncoder::EncodeEDNS0ClientSubnetResoureceRecord(
+        edns0_client_subnet_,
+        Configuration::get("udp-paylad-size-limit").as<uint16_t>(),
+        encode_options, address_data.data());
+  } else if (address.is_v6()) {
+    encode_options.family =
+        static_cast<uint16_t>(dns::EDNSOption::ClientSubnet::FamilyType::IPV6);
+    auto address_data = address.to_v4().to_bytes();
+    dns::MessageEncoder::EncodeEDNS0ClientSubnetResoureceRecord(
+        edns0_client_subnet_,
+        Configuration::get("udp-paylad-size-limit").as<uint16_t>(),
+        encode_options, address_data.data());
+  } else {
+    assert(false);
+    LOG_ERROR("invalid client subnet address type");
   }
   return 0;
 }
