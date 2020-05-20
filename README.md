@@ -5,11 +5,11 @@ a lightweight dns-over-tls proxy (WIP)
 Not ready for production
 
 ## TODO
-  - [x] Basic functionality (accept query from UDP/TCP client -> resolve query through dns-over-tls protocol -> forward answer to user)
-  - [x] Reuse connection to prevent unnecessary tls handshake
-  - [x] Response time based load balancing
+  - [x] Basic functionality (accept query from UDP/TCP -> resolve query through dns-over-tls protocol -> forward answer to users)
+  - [x] Reuse connection to prevent unnecessary handshake
+  - [x] Select fastest remote dynamically
   - [x] Parallel resolve all queries
-  - [x] Resolve query via mutliple remote servers (when under light load)
+  - [x] Resolve query via mutliple remote servers (when idle)
   - [x] SSL session cache
   - [ ] [rfc7828 The edns-tcp-keepalive EDNS0 Option](https://tools.ietf.org/html/rfc7828)
   - [x] [rfc7871 Client Subnet in DNS Queries](https://tools.ietf.org/html/rfc7871)

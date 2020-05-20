@@ -1,0 +1,6 @@
+.*
+*.md
+references
+libs/*
+/build
+/dockerfiles

@@ -1,0 +1,18 @@
+FROM ubuntu:18.04 AS dnstoy-compile
+RUN apt-get update
+RUN apt-get install -y software-properties-common
+RUN add-apt-repository -y ppa:ubuntu-toolchain-r/test
+RUN apt-get update
+RUN apt-get install -y\
+    wget \
+    ninja-build \
+    g++ \
+    gcc \
+    make \
+    libssl-dev \
+    cmake
+WORKDIR /app
+COPY ./install-depencies.sh .
+RUN ./install-depencies.sh
+COPY . .
+RUN ./build.sh 
