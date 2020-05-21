@@ -1,6 +1,8 @@
 #include "tls_resolver.hpp"
+
 #include <boost/endian/conversion.hpp>
 #include <chrono>
+
 #include "configuration.hpp"
 #include "engine.hpp"
 #include "logging.hpp"
@@ -34,6 +36,8 @@ TlsResolver::TlsResolver(const std::string& hostname,
   SSL_CTX_set_session_cache_mode(ssl_context_.native_handle(),
                                  SSL_SESS_CACHE_NO_INTERNAL);
 }
+
+TlsResolver::~TlsResolver() { SSL_SESSION_free(ssl_session_); }
 
 void TlsResolver::Resolve(QueryContext::pointer& query,
                           QueryResultHandler& handler) {
@@ -132,6 +136,8 @@ void TlsResolver::Connect() {
 
   if (ssl_session_) {
     SSL_set_session(socket_->native_handle(), ssl_session_);
+    SSL_SESSION_free(ssl_session_);
+    ssl_session_ = nullptr;
   }
 
   {

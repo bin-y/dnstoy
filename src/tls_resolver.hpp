@@ -8,6 +8,7 @@
 #include <string>
 #include <unordered_map>
 #include <variant>
+
 #include "message_reader.hpp"
 #include "query.hpp"
 #include "resolver.hpp"
@@ -20,6 +21,7 @@ class TlsResolver {
   using tcp_endpoints_type = std::vector<boost::asio::ip::tcp::endpoint>;
   TlsResolver(const std::string& hostname, const tcp_endpoints_type& endpoints);
   void Resolve(QueryContext::pointer& query, QueryResultHandler& handler);
+  ~TlsResolver();
 
  private:
   using stream_type = boost::asio::ssl::stream<boost::asio::ip::tcp::socket>;
