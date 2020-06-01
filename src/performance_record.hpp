@@ -1,8 +1,8 @@
 #ifndef PERFORMANCE_RECORD_H_
 #define PERFORMANCE_RECORD_H_
 
+#include <array>
 #include <chrono>
-#include <vector>
 
 namespace dnstoy {
 
@@ -16,14 +16,14 @@ class PerformanceRecord {
 
  private:
   // TODO: add sample_count to configuration
-  static constexpr size_t sample_count_ = 32;
-  std::vector<std::chrono::milliseconds> time_cost_record_;
+  static constexpr size_t sample_count_ = 16;
+  std::array<std::chrono::milliseconds, sample_count_> time_cost_record_{};
   size_t record_front_ = 0;
   size_t sampled_count_ = 0;
   size_t load_ = 0;
   size_t estimated_delay_ = 0;
-  std::chrono::milliseconds time_cost_sum_;
-  std::chrono::milliseconds average_time_cost_;
+  std::chrono::milliseconds time_cost_sum_{0};
+  std::chrono::milliseconds average_time_cost_{0};
 
   void estimate_delay();
 };
