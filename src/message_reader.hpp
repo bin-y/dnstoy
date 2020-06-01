@@ -85,6 +85,9 @@ class MessageReader {
       LOG_TRACE("connection closed");
       return;
     }
+    if (data_size_ == 0) {
+      data_offset_ = 0;
+    }
     auto available_size = buffer_.size() - data_offset_ - data_size_;
     auto read_size = tcp_message_size_ - data_size_;
     if (!read_size) {
